@@ -1,0 +1,50 @@
+# Containerised local deployment (HLD 14, Deployment acceptance criterion).
+#
+# This compose file also demonstrates the Phase 3 storage path: the backend
+# talks to PostgreSQL here, while `./run.sh` uses SQLite for zero-setup local
+# development. The only thing that changes is DATABASE_URL.
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: storystudio
+      POSTGRES_PASSWORD: storystudio
+      POSTGRES_DB: storystudio
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U storystudio"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://storystudio:storystudio@db:5432/storystudio
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      DEFAULT_PROVIDER: ${DEFAULT_PROVIDER:-gemini}
+      # host.docker.internal lets the container reach an Ollama running on the host.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  frontend:
+    build: ./frontend
+    environment:
+      BACKEND_URL: http://backend:8000
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:

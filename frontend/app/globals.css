@@ -1,0 +1,121 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   Human-AI Co-Creative Storytelling - design tokens
+
+   The central idea: the student's workspace is warm paper, the AI panel is a
+   cooler margin. That asymmetry is not decoration - it is decision D-01 in the
+   HLD, keeping human authorship and machine suggestion visually separate.
+   ========================================================================== */
+
+@theme {
+  /* paper - the student's half */
+  --color-paper:        #fdfcf9;
+  --color-paper-edge:   #efece3;
+  --color-ink:          #1c1917;
+  --color-ink-soft:     #57534e;
+  --color-ink-faint:    #a8a29e;
+
+  /* margin - the AI's half, deliberately cooler and quieter */
+  --color-margin:       #f4f5f7;
+  --color-margin-deep:  #eaecef;
+  --color-margin-edge:  #dfe3e8;
+
+  /* the collaborator */
+  --color-accent:       #3730a3;
+  --color-accent-soft:  #eef0fb;
+  --color-accent-line:  #c7cbf0;
+
+  /* the intercept - attention, not alarm. this is a redirect, not an error */
+  --color-flag:         #a1620a;
+  --color-flag-soft:    #fdf5e3;
+  --color-flag-line:    #ecd9ad;
+
+  /* chart marks - validated for CVD separation and contrast against white.
+     Deliberately lighter than the text accents above: a fill and a glyph have
+     different legibility requirements. */
+  --color-mark:         #4f46e5;
+  --color-mark-flag:    #b45309;
+  --color-mark-track:   #eceef2;
+
+  /* cognitive activity (Flower & Hayes). Validated as a 3-way categorical
+     set: worst adjacent pair is deutan ΔE 13.6, well clear of the floor. */
+  --color-cog-plan:   #4f46e5;
+  --color-cog-trans:  #b45309;
+  --color-cog-review: #0d9488;
+
+  /* agency meter */
+  --color-agency:       #15803d;
+  --color-agency-warn:  #b45309;
+  --color-agency-low:   #b91c1c;
+
+  --font-serif: var(--font-spectral), Iowan Old Style, Georgia, serif;
+  --font-sans:  var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono:  var(--font-mono-jb), ui-monospace, SFMono-Regular, monospace;
+}
+
+:root { color-scheme: light; }
+
+html, body {
+  height: 100%;
+  background: var(--color-margin);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --------------------------------------------------------------------------
+   The story editor. Optical settings matter more here than anywhere else -
+   this is where the student spends their attention.
+   -------------------------------------------------------------------------- */
+.prose-editor {
+  font-family: var(--font-serif);
+  font-size: 1.0625rem;
+  line-height: 1.85;
+  letter-spacing: 0.001em;
+  color: var(--color-ink);
+  caret-color: var(--color-accent);
+}
+.prose-editor::placeholder { color: var(--color-ink-faint); font-style: italic; }
+.prose-editor:focus { outline: none; }
+
+/* --------------------------------------------------------------------------
+   Motion. Restrained: this is a thinking tool, not a game.
+   -------------------------------------------------------------------------- */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-rise { animation: rise 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@keyframes pulse-node {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+.animate-node { animation: pulse-node 0.9s ease-in-out infinite; }
+
+@keyframes sweep {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(300%); }
+}
+.animate-sweep { animation: sweep 1.4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise, .animate-node, .animate-sweep { animation: none; }
+}
+
+/* --------------------------------------------------------------------------
+   Scrollbars - present but recessive.
+   -------------------------------------------------------------------------- */
+.thin-scroll { scrollbar-width: thin; scrollbar-color: var(--color-margin-edge) transparent; }
+.thin-scroll::-webkit-scrollbar { width: 9px; }
+.thin-scroll::-webkit-scrollbar-track { background: transparent; }
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-margin-edge);
+  border-radius: 99px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.thin-scroll::-webkit-scrollbar-thumb:hover { background-color: var(--color-ink-faint); background-clip: content-box; }
+
+::selection { background: var(--color-accent-soft); color: var(--color-accent); }

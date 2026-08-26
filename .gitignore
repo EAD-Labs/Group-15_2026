@@ -1,0 +1,19 @@
+# python
+backend/.venv/
+__pycache__/
+*.pyc
+backend/.env
+backend/*.db
+
+# node
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# os
+.DS_Store
+
+# Source documents — kept local, not redistributed.
+# The C&C '24 paper is ACM-copyrighted; the HLD and client brief carry the
+# client's contact details. The README cites the paper by DOI instead.
+*.pdf

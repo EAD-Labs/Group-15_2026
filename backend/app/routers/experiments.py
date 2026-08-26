@@ -1,0 +1,261 @@
+"""Experiment design and outcome comparison.
+
+The point of this module is to make "we changed X and students did Y" a query
+rather than an anecdote. Conditions are named and stored; every workspace and
+turn records the condition it was produced under; outcomes are aggregated per
+condition on the same measures.
+"""
+import random
+import statistics
+from collections import Counter
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ..config import settings
+from ..db import get_db
+from ..metrics import agency_report
+from ..models import ConversationTurn, ExperimentArm, StoryWorkspace, TelemetryEvent, User
+from ..prompts import SCAFFOLD_INTENSITY
+from ..schemas import ArmIn, ArmOut, AssignIn
+
+router = APIRouter(prefix="/api/research/experiments", tags=["experiments"])
+
+
+def _out(a: ExperimentArm, n_participants: int = 0) -> ArmOut:
+    return ArmOut(
+        arm_id=a.arm_id, name=a.name, description=a.description,
+        provider=a.provider, model_name=a.model_name, temperature=a.temperature,
+        guardrail_strictness=a.guardrail_strictness,
+        scaffold_intensity=a.scaffold_intensity, system_prompt=a.system_prompt,
+        allow_student_intensity=a.allow_student_intensity,
+        allow_student_model=a.allow_student_model,
+        allowed_providers=a.allowed_providers or [],
+        is_control=a.is_control, is_default=a.is_default, active=a.active,
+        participants=n_participants,
+    )
+
+
+def _counts(db: Session) -> dict[str, int]:
+    c: Counter = Counter()
+    for u in db.scalars(select(User).where(User.role == "student")):
+        if u.arm_id:
+            c[u.arm_id] += 1
+    return dict(c)
+
+
+def ensure_default_arms(db: Session) -> None:
+    """Seed a two-arm study so the comparison view is never empty on arrival."""
+    if db.scalar(select(ExperimentArm)):
+        return
+    db.add_all([
+        ExperimentArm(
+            name="Socratic guardrail", is_control=False, is_default=True,
+            description="The intervention: executive requests are intercepted and "
+                        "converted into questions.",
+            provider=settings.effective_provider, guardrail_strictness=2,
+            scaffold_intensity="balanced", allow_student_intensity=True,
+            allow_student_model=True, allowed_providers=["gemini", "ollama", "echo"],
+        ),
+        ExperimentArm(
+            name="Unguarded assistant", is_control=True,
+            description="Control: an ordinary AI writing assistant that complies "
+                        "with requests to write.",
+            provider=settings.effective_provider, guardrail_strictness=0,
+            scaffold_intensity="balanced", allow_student_intensity=True,
+            allow_student_model=True, allowed_providers=["gemini", "ollama", "echo"],
+        ),
+    ])
+    db.commit()
+
+
+@router.get("", response_model=list[ArmOut])
+def list_arms(db: Session = Depends(get_db)):
+    ensure_default_arms(db)
+    counts = _counts(db)
+    rows = db.scalars(select(ExperimentArm).order_by(ExperimentArm.created_at))
+    return [_out(a, counts.get(a.arm_id, 0)) for a in rows]
+
+
+@router.post("", response_model=ArmOut)
+def create_arm(body: ArmIn, db: Session = Depends(get_db)):
+    arm = ExperimentArm(**body.model_dump(exclude_none=True))
+    db.add(arm)
+    db.add(TelemetryEvent(event_type="arm_created", payload={"name": arm.name}))
+    db.commit()
+    db.refresh(arm)
+    return _out(arm)
+
+
+@router.patch("/{arm_id}", response_model=ArmOut)
+def update_arm(arm_id: str, body: ArmIn, db: Session = Depends(get_db)):
+    arm = db.get(ExperimentArm, arm_id)
+    if not arm:
+        raise HTTPException(404, "Condition not found")
+    changes = body.model_dump(exclude_none=True)
+    for flag in ("is_default", "is_control"):
+        if changes.get(flag):
+            for other in db.scalars(select(ExperimentArm).where(ExperimentArm.arm_id != arm_id)):
+                setattr(other, flag, False)
+    for k, v in changes.items():
+        setattr(arm, k, v)
+    db.add(TelemetryEvent(
+        event_type="arm_updated",
+        payload={"arm_id": arm_id, "changes": list(changes)},
+    ))
+    db.commit()
+    db.refresh(arm)
+    return _out(arm, _counts(db).get(arm_id, 0))
+
+
+@router.delete("/{arm_id}")
+def delete_arm(arm_id: str, db: Session = Depends(get_db)):
+    arm = db.get(ExperimentArm, arm_id)
+    if not arm:
+        raise HTTPException(404, "Condition not found")
+    # Unassign rather than orphan; historical turns keep their arm_id so past
+    # results stay interpretable.
+    for u in db.scalars(select(User).where(User.arm_id == arm_id)):
+        u.arm_id = ""
+    db.delete(arm)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/assign")
+def assign(body: AssignIn, db: Session = Depends(get_db)):
+    """Assign participants to conditions, by hand or at random."""
+    students = list(db.scalars(select(User).where(User.role == "student")))
+    arms = [a for a in db.scalars(select(ExperimentArm).where(ExperimentArm.active.is_(True)))]
+    if not arms:
+        raise HTTPException(400, "No active conditions to assign to")
+
+    if body.randomise:
+        pool = students if body.include_assigned else [u for u in students if not u.arm_id]
+        rng = random.Random(body.seed) if body.seed is not None else random.Random()
+        rng.shuffle(pool)
+        # Round-robin over a shuffled pool: balanced group sizes, random membership.
+        for i, u in enumerate(pool):
+            u.arm_id = arms[i % len(arms)].arm_id
+        changed = len(pool)
+    else:
+        if not body.user_id or not body.arm_id:
+            raise HTTPException(400, "user_id and arm_id are required unless randomising")
+        user = db.get(User, body.user_id)
+        if not user:
+            raise HTTPException(404, "Participant not found")
+        user.arm_id = body.arm_id
+        changed = 1
+
+    db.add(TelemetryEvent(
+        event_type="assignment",
+        payload={"randomised": body.randomise, "changed": changed},
+    ))
+    db.commit()
+    return {"ok": True, "assigned": changed}
+
+
+@router.get("/compare")
+def compare(db: Session = Depends(get_db)):
+    """Outcome measures per condition, on identical definitions.
+
+    Answers the question the client actually has: if we change the guardrail,
+    the model, or the scaffold intensity, what do students do differently?
+    """
+    ensure_default_arms(db)
+    arms = list(db.scalars(select(ExperimentArm).order_by(ExperimentArm.created_at)))
+    workspaces = list(db.scalars(select(StoryWorkspace)))
+    turns = list(db.scalars(select(ConversationTurn)))
+    users = {u.user_id: u for u in db.scalars(select(User))}
+
+    user_turns = [t for t in turns if t.speaker == "user"]
+    ai_turns = [t for t in turns if t.speaker == "ai"]
+
+    def arm_of(ws: StoryWorkspace) -> str:
+        if ws.arm_id:
+            return ws.arm_id
+        u = users.get(ws.user_id)
+        return u.arm_id if u else ""
+
+    rows = []
+    for arm in arms:
+        ws_in_arm = [w for w in workspaces if arm_of(w) == arm.arm_id]
+        ids = {w.workspace_id for w in ws_in_arm}
+        u_turns = [t for t in user_turns if t.workspace_id in ids]
+        a_turns = [t for t in ai_turns if t.workspace_id in ids]
+
+        agencies, retentions, words = [], [], []
+        for w in ws_in_arm:
+            rep = agency_report(
+                w.current_content,
+                [t.message_text for t in a_turns if t.workspace_id == w.workspace_id],
+            )
+            if rep["total_words"]:
+                agencies.append(rep["agency_ratio"])
+                retentions.append(rep["ai_retention_rouge_l"])
+                words.append(rep["total_words"])
+
+        intercepts = sum(1 for t in u_turns if t.intercepted)
+        latencies = [t.latency_ms for t in a_turns if t.latency_ms]
+        participants = sum(1 for u in users.values()
+                           if u.role == "student" and u.arm_id == arm.arm_id)
+
+        rows.append({
+            "arm_id": arm.arm_id,
+            "name": arm.name,
+            "is_control": arm.is_control,
+            "config": {
+                "provider": arm.provider,
+                "model_name": arm.model_name,
+                "temperature": arm.temperature,
+                "guardrail_strictness": arm.guardrail_strictness,
+                "scaffold_intensity": arm.scaffold_intensity,
+            },
+            "participants": participants,
+            "workspaces": len(ws_in_arm),
+            "exchanges": len(u_turns),
+            # --- outcome measures, identical definitions across arms --------
+            "mean_agency": round(statistics.fmean(agencies), 3) if agencies else None,
+            "mean_ai_retention": round(statistics.fmean(retentions), 3) if retentions else None,
+            "mean_words": round(statistics.fmean(words), 1) if words else None,
+            "words_per_exchange": (
+                round(sum(words) / len(u_turns), 1) if words and u_turns else None
+            ),
+            "intercept_rate": round(intercepts / len(u_turns), 3) if u_turns else None,
+            "median_latency_ms": int(statistics.median(latencies)) if latencies else None,
+            "intent_distribution": dict(
+                Counter(t.intent_type for t in u_turns if t.intent_type)
+            ),
+            "cognitive_distribution": dict(
+                Counter(t.cognitive_activity for t in u_turns if t.cognitive_activity)
+            ),
+            "intensity_used": dict(
+                Counter(t.scaffold_intensity for t in a_turns if t.scaffold_intensity)
+            ),
+        })
+
+    unassigned = sum(1 for u in users.values() if u.role == "student" and not u.arm_id)
+    return {
+        "arms": rows,
+        "unassigned_participants": unassigned,
+        "measures": {
+            "mean_agency": "1 − (draft 5-grams also found in AI output) ÷ draft 5-grams. Higher = more of the text is the student's own language.",
+            "mean_ai_retention": "ROUGE-L recall of AI output within the draft (Chakrabarty et al., C&C '24, Fig. 7). Higher = more of what the AI said ended up in the story.",
+            "words_per_exchange": "Draft words divided by student instructions. A productivity-per-interaction measure.",
+            "intercept_rate": "Share of student instructions the Helsinki filter intercepted.",
+        },
+        "intensities": [
+            {"id": k, "label": v["label"], "blurb": v["blurb"]}
+            for k, v in SCAFFOLD_INTENSITY.items()
+        ],
+    }
+
+
+def default_arm(db: Session) -> ExperimentArm | None:
+    """Where a participant with no assignment lands."""
+    ensure_default_arms(db)
+    return (
+        db.scalar(select(ExperimentArm).where(ExperimentArm.is_default.is_(True)))
+        or db.scalar(select(ExperimentArm).order_by(ExperimentArm.created_at))
+    )
