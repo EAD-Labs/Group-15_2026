@@ -93,6 +93,7 @@ class AssignIn(BaseModel):
 class WorkspaceCreate(BaseModel):
     title: str = "Untitled Story"
     initial_prompt: str = ""
+    goals: str = ""
     mode: str = "learning_scenario"
     scaffold_intensity: str = "balanced"
 
@@ -100,6 +101,7 @@ class WorkspaceCreate(BaseModel):
 class WorkspaceUpdate(BaseModel):
     title: str | None = None
     current_content: str | None = None
+    goals: str | None = None
     mode: str | None = None
     status: str | None = None
     scaffold_intensity: str | None = None
@@ -110,6 +112,7 @@ class WorkspaceOut(BaseModel):
     title: str
     initial_prompt: str
     current_content: str
+    goals: str = ""
     mode: str
     status: str
     created_at: str

@@ -77,7 +77,7 @@ export const api = {
 
   listWorkspaces: () => json<Workspace[]>("/api/workspaces"),
 
-  createWorkspace: (body: { title: string; initial_prompt: string; mode: string }) =>
+  createWorkspace: (body: { title: string; initial_prompt: string; mode: string; goals?: string }) =>
     json<Workspace>("/api/workspaces", { method: "POST", body: JSON.stringify(body) }),
 
   getWorkspace: (id: string) => json<Workspace>(`/api/workspaces/${id}`),
@@ -103,7 +103,10 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  summary: () => json<Summary>("/api/research/summary"),
+  summary: (workspaceId = "") =>
+    json<Summary>(
+      `/api/research/summary${workspaceId ? `?workspace_id=${workspaceId}` : ""}`,
+    ),
 
   events: (limit = 60, workspaceId = "") =>
     json<TelemetryEvent[]>(

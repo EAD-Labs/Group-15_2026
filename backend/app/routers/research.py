@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..db import get_db
+from ..deps import current_user_id
 from ..metrics import agency_report
 from ..models import (
     AIRole, ConversationTurn, ExperimentArm, PromptConfig, StoryWorkspace,
@@ -213,11 +214,25 @@ def delete_role(role_id: str, db: Session = Depends(get_db)):
 # --------------------------------------------------------------------------
 
 @router.post("/events")
-def record_event(body: EventIn, db: Session = Depends(get_db)):
-    user = db.scalar(select(User).where(User.role == "student"))
+def record_event(
+    body: EventIn,
+    db: Session = Depends(get_db),
+    user_id: str | None = Depends(current_user_id),
+):
+    # Attribute to the caller the browser names in X-User-Id; fall back to the
+    # workspace owner. The old code filed every event under the *first* student
+    # in the table, which silently merged the whole cohort onto one participant
+    # (iteration-2 plan, defect D2).
+    resolved = ""
+    if user_id and db.get(User, user_id):
+        resolved = user_id
+    elif body.workspace_id:
+        ws = db.get(StoryWorkspace, body.workspace_id)
+        if ws:
+            resolved = ws.user_id
     db.add(TelemetryEvent(
         workspace_id=body.workspace_id,
-        user_id=user.user_id if user else "",
+        user_id=resolved,
         event_type=body.event_type,
         delta_change=body.delta_change,
         duration_ms=body.duration_ms,
@@ -247,11 +262,23 @@ def list_events(limit: int = 100, workspace_id: str = "", db: Session = Depends(
 # Aggregate study view
 # --------------------------------------------------------------------------
 
+_ACTIVITIES = ("planning", "translation", "reviewing", "other")
+
+
 @router.get("/summary")
-def summary(db: Session = Depends(get_db)):
-    workspaces = list(db.scalars(select(StoryWorkspace)))
-    turns = list(db.scalars(select(ConversationTurn)))
-    events = list(db.scalars(select(TelemetryEvent)))
+def summary(workspace_id: str = "", db: Session = Depends(get_db)):
+    ws_q = select(StoryWorkspace)
+    if workspace_id:
+        ws_q = ws_q.where(StoryWorkspace.workspace_id == workspace_id)
+    workspaces = list(db.scalars(ws_q))
+    ids = {w.workspace_id for w in workspaces}
+
+    all_turns = list(db.scalars(select(ConversationTurn)))
+    turns = [t for t in all_turns if not workspace_id or t.workspace_id in ids]
+    events = [
+        e for e in db.scalars(select(TelemetryEvent))
+        if not workspace_id or e.workspace_id in ids
+    ]
 
     ai_turns = [t for t in turns if t.speaker == "ai"]
     user_turns = [t for t in turns if t.speaker == "user"]
@@ -281,6 +308,24 @@ def summary(db: Session = Depends(get_db)):
             "updated_at": ws.updated_at.isoformat(),
         })
 
+    # Retention split by the writing activity of the AI turn. Reviewing output
+    # is reported here but, per C&C '24 footnote 18, is not meant to enter the
+    # draft - so the split makes the "is Reviewing inflating our headline
+    # number?" question directly visible (relates to defect D4, pending Q5).
+    act_ret: dict[str, list[float]] = {a: [] for a in _ACTIVITIES}
+    for ws in workspaces:
+        for a in _ACTIVITIES:
+            texts = [t.message_text for t in ai_turns
+                     if t.workspace_id == ws.workspace_id and t.cognitive_activity == a]
+            if not texts:
+                continue
+            rep_a = agency_report(ws.current_content, texts)
+            if rep_a["total_words"]:
+                act_ret[a].append(rep_a["ai_retention_rouge_l"])
+    retention_by_activity = {
+        a: round(sum(v) / len(v), 3) if v else None for a, v in act_ret.items()
+    }
+
     enforcement = Counter()
     for e in events:
         if e.event_type == "ai_response":
@@ -298,6 +343,7 @@ def summary(db: Session = Depends(get_db)):
         "intent_distribution": dict(intents),
         "cognitive_distribution": dict(cognitive),
         "declared_distribution": dict(declared),
+        "retention_by_activity": retention_by_activity,
         "mean_ai_retention": (
             round(sum(retention_values) / len(retention_values), 3)
             if retention_values else 0.0
@@ -379,6 +425,7 @@ def export_json(workspace_id: str = "", db: Session = Depends(get_db)):
                 "workspace_id": w.workspace_id,
                 "participant": codes.get(w.user_id, "Participant_XX"),
                 "title": w.title, "mode": w.mode, "initial_prompt": w.initial_prompt,
+                "goals": w.goals,
                 "final_text": w.current_content,
                 "agency": agency_report(
                     w.current_content,

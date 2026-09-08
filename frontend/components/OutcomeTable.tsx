@@ -11,6 +11,13 @@ type Measure = {
   hope: "up" | "down" | "none";
 };
 
+const ACTIVITY_ROWS: [string, string][] = [
+  ["planning", "Planning"],
+  ["translation", "Translation"],
+  ["reviewing", "Reviewing"],
+  ["other", "Other"],
+];
+
 const MEASURES: Measure[] = [
   { key: "mean_agency", label: "Human agency", fmt: (v) => `${Math.round(v * 100)}%`, hope: "up" },
   { key: "mean_ai_retention", label: "AI retention (ROUGE-L)", fmt: (v) => `${Math.round(v * 100)}%`, hope: "down" },
@@ -142,6 +149,51 @@ export function OutcomeTable({ arms }: { arms: ArmOutcome[] }) {
           Dimmed figures come from fewer than three exchanges and are not yet
           worth reading.
         </p>
+      )}
+
+      {arms.some((a) =>
+        a.retention_by_activity &&
+        Object.values(a.retention_by_activity).some((v) => v != null),
+      ) && (
+        <details className="group mt-2.5">
+          <summary className="cursor-pointer list-none font-mono text-[10px] text-[var(--color-ink-faint)] hover:text-[var(--color-ink-soft)]">
+            <span className="group-open:hidden">▸</span><span className="hidden group-open:inline">▾</span>{" "}
+            AI retention by writing activity
+          </summary>
+          <div className="mt-2 overflow-x-auto rounded-lg border border-[var(--color-margin-edge)] bg-white">
+            <table className="w-full min-w-[420px] text-left">
+              <thead>
+                <tr className="border-b border-[var(--color-margin-edge)] font-mono text-[10px] uppercase tracking-wider text-[var(--color-ink-faint)]">
+                  <th className="px-3.5 py-2 font-normal">activity</th>
+                  {arms.map((a) => (
+                    <th key={a.arm_id} className="px-3.5 py-2 text-right font-normal">{a.name}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {ACTIVITY_ROWS.map(([key, label]) => (
+                  <tr key={key} className="border-b border-[var(--color-margin-edge)] last:border-0">
+                    <td className="px-3.5 py-2 text-[12px] text-[var(--color-ink-soft)]">{label}</td>
+                    {arms.map((a) => {
+                      const v = a.retention_by_activity?.[key] ?? null;
+                      return (
+                        <td key={a.arm_id} className="px-3.5 py-2 text-right font-mono text-[11px] tabular-nums text-[var(--color-ink-soft)]">
+                          {v == null ? "—" : `${Math.round(v * 100)}%`}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-1.5 text-[10px] leading-snug text-[var(--color-ink-faint)]">
+            ROUGE-L recall of that activity’s AI output within the draft.
+            Chakrabarty et&nbsp;al. (footnote&nbsp;18) exclude Reviewing from the
+            headline figure, since critique is not meant to enter the draft —
+            shown here for comparison.
+          </p>
+        </details>
       )}
     </div>
   );

@@ -153,6 +153,7 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
         declared_activity=body.declared_activity or "",
         custom_system_prompt=system_prompt,
         intensity=intensity,
+        goals=ws.goals or "",
         arm_id=arm.arm_id if arm else "",
     )
     user_id = ws.user_id

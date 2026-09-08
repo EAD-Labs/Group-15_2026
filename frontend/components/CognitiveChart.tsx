@@ -9,6 +9,8 @@ const ROWS = [
     blurb: "getting thoughts into sentences" },
   { id: "reviewing", label: "Reviewing", tone: "var(--color-cog-review)",
     blurb: "judging or revising what exists" },
+  { id: "other", label: "Other", tone: "var(--color-ink-faint)",
+    blurb: "small talk, asides, off-topic (C&C '24 Fig. 5)" },
 ];
 
 /**

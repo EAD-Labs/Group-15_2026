@@ -62,6 +62,7 @@ AXIS 2 - cognitive writing activity (Flower & Hayes):
 planning      - goals, ideas, structure, what should happen, who someone is
 translation   - wording, phrasing, imagery, dialogue, getting it onto the page
 reviewing     - judging or revising existing text, feedback, what is not working
+other         - none of the above: small talk, thanks, an aside, off-topic
 
 Student message: {message}
 

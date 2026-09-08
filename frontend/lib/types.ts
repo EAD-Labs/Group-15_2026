@@ -15,7 +15,7 @@ export type Template = {
   inverted: boolean;
 };
 
-export type CognitiveActivity = "planning" | "translation" | "reviewing" | "";
+export type CognitiveActivity = "planning" | "translation" | "reviewing" | "other" | "";
 
 // What the writer declares (Flower & Hayes' Monitor). Spelled "translating" to
 // match the client and the UI copy; the detected axis stores "translation".
@@ -104,6 +104,7 @@ export type ArmOutcome = {
   exchanges: number;
   mean_agency: number | null;
   mean_ai_retention: number | null;
+  retention_by_activity: Record<string, number | null>;
   mean_words: number | null;
   words_per_exchange: number | null;
   intercept_rate: number | null;
@@ -132,6 +133,7 @@ export type Workspace = {
   title: string;
   initial_prompt: string;
   current_content: string;
+  goals: string;
   mode: string;
   status: string;
   created_at: string;
@@ -229,6 +231,7 @@ export type Summary = {
   intent_distribution: Record<string, number>;
   cognitive_distribution: Record<string, number>;
   declared_distribution: Record<string, number>;
+  retention_by_activity: Record<string, number | null>;
   mean_ai_retention: number;
   enforcement_actions: Record<string, number>;
   event_count: number;

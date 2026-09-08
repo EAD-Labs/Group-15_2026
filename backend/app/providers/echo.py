@@ -160,8 +160,10 @@ class EchoProvider(LLMProvider):
             cognitive = "translation"
         elif re.search(r"\b(feedback|critique|inconsisten|work(s|ing|ed)?\b|flat|weak|wrong|fix|revise|cut|improve|better|repetit|thin|underwritten|pulling its weight)\b", msg):
             cognitive = "reviewing"
-        else:
+        elif re.search(r"\b(what if|happens? next|should happen|idea|direction|option|plot|charact|motivat|structur|arc|ending|begin|start|outline|goal)\b", msg):
             cognitive = "planning"
+        else:
+            cognitive = "other"
 
         return f"{help_type} {cognitive}"
 

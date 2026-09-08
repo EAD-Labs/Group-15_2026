@@ -41,8 +41,10 @@ fail in front of an audience.
 
 ### Live models
 
-A Gemini key is already in `backend/.env` and the app boots on
-`gemini-3.5-flash`.
+`./run.sh` copies `backend/.env.example` to `backend/.env` on first run. Add
+your own `GEMINI_API_KEY` there (a free key comes from
+<https://aistudio.google.com/apikey>) to use live models; the app boots on
+`gemini-3.5-flash`. With no key it runs the offline scaffold — see above.
 
 **Free-tier quotas are small and per-model** — `gemini-3.6-flash` allows 20
 requests *per day*. The provider therefore walks a fallback chain
@@ -124,14 +126,14 @@ Phase 3 storage path. Nothing changes but `DATABASE_URL`.
 
 | HLD section | Where it lives |
 |---|---|
-| 6.1 M1 — Story Workspace & UI | `frontend/app/story/[id]/page.tsx` |
+| 6.1 M1 — Story Workspace & UI | `frontend/app/student/story/[id]/page.tsx` |
 | 6.1 M2 — Socratic Guardrail & Helsinki engine | `backend/app/graph/nodes.py`, `backend/app/prompts.py` |
 | 6.1 M2(iii) — Agency Enforcer | `agency_enforcer()` in `backend/app/graph/nodes.py` |
 | 6.1 M3 — Dynamic Model Gateway | `backend/app/providers/` |
 | 6.1 M4 — Telemetry & Analytics | `backend/app/routers/research.py`, `backend/app/metrics.py` |
 | 7.1 — Agentic state machine, 4 nodes | `backend/app/graph/runner.py` (`GRAPH_SPEC`) |
 | 8.2 — Data entities | `backend/app/models.py` (1:1 with the table in the HLD) |
-| 9.1 — Screen inventory | `app/page.tsx`, `app/story/[id]`, `app/research` |
+| 9.1 — Screen inventory | `app/page.tsx`, `app/student/story/[id]`, `app/researcher` |
 | 9.3 — Workspace wireframe | the split-screen layout, incl. the agency % in the header |
 | 10.2 — Human Agency Retention eval | `backend/app/metrics.py` (`agency_report`) |
 | 9.1 — Login / Auth screen | `frontend/app/page.tsx` (portal chooser) |
@@ -277,8 +279,9 @@ global draft-level feedback".
 
 The paper plots instruction type against instruction index to show writers
 alternate between the three activities **non-linearly**, never in tidy phases.
-`/researcher/telemetry` renders the same plot from live data, per session or
-across the cohort, with intercepted turns ringed. `components/CognitiveTimeline.tsx`
+`/researcher/data` renders the same plot from live data, per session or
+across the cohort, with intercepted turns ringed, and (iteration 2) a second
+track for the writer's declared activity. `components/CognitiveTimeline.tsx`
 
 ### 5. ROUGE-L retention alongside our agency metric
 

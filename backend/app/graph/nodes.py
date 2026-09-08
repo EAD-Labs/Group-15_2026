@@ -65,7 +65,10 @@ _INSTRUMENTAL_VETO = re.compile(
 )
 
 _VALID = {"executive", "instrumental", "brainstorm", "reflection"}
-_VALID_COGNITIVE = {"planning", "translation", "reviewing"}
+# The C&C '24 annotators used a fourth "other" bucket (their Fig. 5). Without it
+# every unclassifiable turn was forced into "planning", inflating the category
+# the paper reports as rarest (iteration-2 plan, defect D3).
+_VALID_COGNITIVE = {"planning", "translation", "reviewing", "other"}
 
 # Keyword fallback for the cognitive axis, used when the model is unreachable
 # or returns only one label.
@@ -118,7 +121,9 @@ def _cognitive_fallback(message: str) -> str:
     for label, pattern in _COGNITIVE_HINTS:
         if re.search(pattern, message, re.I):
             return label
-    return "planning"
+    # Nothing matched: "other", not "planning". A wrong default here quietly
+    # skews the headline distribution (defect D3).
+    return "other"
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +174,11 @@ def _build_user_prompt(state: TurnState) -> str:
         parts.append(
             f"---\nThe writer says they are currently {state.declared_activity}. "
             "Meet them in that activity."
+        )
+    if state.goals.strip():
+        parts.append(
+            f"---\nThe writer's stated goal for this piece:\n{state.goals.strip()[:600]}\n"
+            "Hold the draft against this goal where it helps."
         )
     parts.append(f"---\nSTUDENT SAYS: {state.message}")
     return "\n\n".join(parts)
@@ -222,7 +232,7 @@ def _split_probes(blob: str, limit: int = 3) -> list[str]:
     for p in raw:
         p = p.strip().strip('"').lstrip("0123456789.) ").strip()
         if 3 < len(p) <= 120:
-            out.append(p if p.endswith("?") else p)
+            out.append(p)
     return out[:limit]
 
 

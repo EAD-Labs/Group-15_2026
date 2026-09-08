@@ -25,6 +25,8 @@ from ..schemas import ArmIn, ArmOut, AssignIn
 
 router = APIRouter(prefix="/api/research/experiments", tags=["experiments"])
 
+_ACTIVITIES = ("planning", "translation", "reviewing", "other")
+
 
 def _out(a: ExperimentArm, n_participants: int = 0, role: AIRole | None = None) -> ArmOut:
     return ArmOut(
@@ -305,15 +307,23 @@ def compare(db: Session = Depends(get_db)):
         a_turns = [t for t in ai_turns if t.workspace_id in ids]
 
         agencies, retentions, words = [], [], []
+        act_ret: dict[str, list[float]] = {a: [] for a in _ACTIVITIES}
         for w in ws_in_arm:
-            rep = agency_report(
-                w.current_content,
-                [t.message_text for t in a_turns if t.workspace_id == w.workspace_id],
-            )
+            ws_ai = [t for t in a_turns if t.workspace_id == w.workspace_id]
+            rep = agency_report(w.current_content, [t.message_text for t in ws_ai])
             if rep["total_words"]:
                 agencies.append(rep["agency_ratio"])
                 retentions.append(rep["ai_retention_rouge_l"])
                 words.append(rep["total_words"])
+                # Retention split by the AI turn's writing activity (defect D4 /
+                # Q5): lets the arms x activities x retention comparison be read
+                # off directly, which the C&C '24 paper could not do.
+                for act in _ACTIVITIES:
+                    act_texts = [t.message_text for t in ws_ai if t.cognitive_activity == act]
+                    if act_texts:
+                        act_ret[act].append(
+                            agency_report(w.current_content, act_texts)["ai_retention_rouge_l"]
+                        )
 
         intercepts = sum(1 for t in u_turns if t.intercepted)
         latencies = [t.latency_ms for t in a_turns if t.latency_ms]
@@ -337,6 +347,10 @@ def compare(db: Session = Depends(get_db)):
             # --- outcome measures, identical definitions across arms --------
             "mean_agency": round(statistics.fmean(agencies), 3) if agencies else None,
             "mean_ai_retention": round(statistics.fmean(retentions), 3) if retentions else None,
+            "retention_by_activity": {
+                act: round(statistics.fmean(v), 3) if v else None
+                for act, v in act_ret.items()
+            },
             "mean_words": round(statistics.fmean(words), 1) if words else None,
             "words_per_exchange": (
                 round(sum(words) / len(u_turns), 1) if words and u_turns else None

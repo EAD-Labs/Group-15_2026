@@ -15,6 +15,7 @@ const COGNITIVE_COPY: Record<string, { label: string; blurb: string; tone: strin
   planning: { label: "planning", blurb: "goals, ideas, what should happen", tone: "var(--color-cog-plan)" },
   translation: { label: "translating", blurb: "getting thoughts into sentences", tone: "var(--color-cog-trans)" },
   reviewing: { label: "reviewing", blurb: "judging or revising what exists", tone: "var(--color-cog-review)" },
+  other: { label: "other", blurb: "an aside, or off-topic", tone: "var(--color-ink-faint)" },
 };
 
 // "translation" (detected) and "translating" (declared) are the same activity.

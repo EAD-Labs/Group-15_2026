@@ -11,7 +11,7 @@ import { Conversation } from "@/components/Chat";
 import { ExportDialog } from "@/components/ExportDialog";
 import { TemplateRail } from "@/components/TemplateRail";
 import { ScaffoldControl } from "@/components/ScaffoldControl";
-import { PortalLoading, usePortal } from "@/components/PortalGuard";
+import { usePortal } from "@/components/PortalGuard";
 
 const SAVE_DEBOUNCE = 900;
 
@@ -23,6 +23,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   const [turns, setTurns] = useState<Turn[]>([]);
   const [graph, setGraph] = useState<GraphNode[]>([]);
   const [draft, setDraft] = useState("");
+  const [goals, setGoals] = useState("");
   const [message, setMessage] = useState("");
   const [probes, setProbes] = useState<string[]>([]);
   const [thinking, setThinking] = useState(false);
@@ -56,6 +57,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       setOptions(o);
       setWs(w);
       setIntensity(w.scaffold_intensity ?? "balanced");
+      setGoals(w.goals ?? "");
       setDraft(w.current_content);
       lastLen.current = w.current_content.length;
       setTurns(t);
@@ -272,12 +274,6 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         >
           Export
         </button>
-        <Link
-          href="/research"
-          className="rounded-md px-2.5 py-1.5 text-[12px] text-[var(--color-ink-soft)] transition-colors hover:bg-[var(--color-margin-deep)]"
-        >
-          Research
-        </Link>
       </header>
 
       {/* ---- split screen ------------------------------------------------- */}
@@ -291,6 +287,24 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
             <span className="font-mono text-[10px] text-[var(--color-ink-faint)]">
               {selection ? "passage selected" : "your control"}
             </span>
+          </div>
+
+          {/* the writer's own goal for the piece (Flower & Hayes: goal-setting) */}
+          <div className="border-b border-[var(--color-paper-edge)] px-6 py-1.5">
+            <input
+              value={goals}
+              onChange={(e) => setGoals(e.target.value)}
+              onBlur={(e) => {
+                if ((e.target.value ?? "") === (ws.goals ?? "")) return;
+                api.updateWorkspace(id, { goals: e.target.value }).then(setWs);
+                api.logEvent({
+                  workspace_id: id, event_type: "goal_set",
+                  payload: { length: e.target.value.trim().length },
+                });
+              }}
+              placeholder="Your goal for this piece (optional) — what are you trying to do with it?"
+              className="w-full max-w-[68ch] bg-transparent font-serif text-[12px] italic text-[var(--color-ink-soft)] outline-none placeholder:not-italic placeholder:text-[var(--color-ink-faint)] focus:text-[var(--color-ink)]"
+            />
           </div>
 
           <div className="thin-scroll flex-1 overflow-y-auto">

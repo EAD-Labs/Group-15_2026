@@ -37,7 +37,7 @@ export default function DataPage() {
 
   const refresh = useCallback(async (workspaceId: string) => {
     const [s, e, t, p] = await Promise.all([
-      api.summary(),
+      api.summary(workspaceId),
       api.events(60, workspaceId),
       api.timeline(workspaceId),
       api.participants(),
@@ -143,6 +143,15 @@ export default function DataPage() {
                   writer-declared:{" "}
                   {Object.entries(summary.declared_distribution)
                     .map(([k, v]) => `${k} ${v}`)
+                    .join(" · ")}
+                </p>
+              )}
+              {summary && Object.values(summary.retention_by_activity ?? {}).some((v) => v != null) && (
+                <p className="mt-2 font-mono text-[10px] text-[var(--color-ink-faint)]">
+                  AI retention by activity:{" "}
+                  {Object.entries(summary.retention_by_activity)
+                    .filter(([, v]) => v != null)
+                    .map(([k, v]) => `${k} ${Math.round((v as number) * 100)}%`)
                     .join(" · ")}
                 </p>
               )}

@@ -115,6 +115,10 @@ class StoryWorkspace(Base):
     title: Mapped[str] = mapped_column(String, default="Untitled Story")
     initial_prompt: Mapped[str] = mapped_column(Text, default="")
     current_content: Mapped[str] = mapped_column(Text, default="")
+    # The writer's own goal for the piece, editable any time. Flower & Hayes
+    # single out goal-setting as central to "being creative"; we stored a plot
+    # seed but never the writer's intent (iteration-2 plan §7.2).
+    goals: Mapped[str] = mapped_column(Text, default="")
     # learning_scenario | educational_narrative | design_fiction  (client brief, p3)
     mode: Mapped[str] = mapped_column(String, default="learning_scenario")
     status: Mapped[str] = mapped_column(String, default="active")

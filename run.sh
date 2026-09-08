@@ -29,7 +29,7 @@ echo
 echo "  Story Studio is running"
 echo "  ─────────────────────────────────────────"
 echo "  Student workspace   http://localhost:3000"
-echo "  Researcher panel    http://localhost:3000/research"
+echo "  Researcher panel    http://localhost:3000/researcher"
 echo "  API docs            http://localhost:8000/docs"
 echo
 echo "  Ctrl-C to stop."

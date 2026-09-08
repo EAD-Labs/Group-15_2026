@@ -27,6 +27,7 @@ class TurnState:
     effective_activity: str = ""  # declared if set, else detected; conditions the prompt
     custom_system_prompt: str = ""
     intensity: str = "balanced"
+    goals: str = ""  # the writer's stated goal for the piece, if any
     arm_id: str = ""
 
     # produced along the way

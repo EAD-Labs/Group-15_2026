@@ -7,6 +7,7 @@ const ROWS = [
   { id: "planning", label: "Planning", tone: "var(--color-cog-plan)" },
   { id: "translation", label: "Translation", tone: "var(--color-cog-trans)" },
   { id: "reviewing", label: "Reviewing", tone: "var(--color-cog-review)" },
+  { id: "other", label: "Other", tone: "var(--color-ink-faint)" },
 ];
 
 /**
