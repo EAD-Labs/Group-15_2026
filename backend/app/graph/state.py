@@ -17,6 +17,13 @@ class TurnState:
     temperature: float = 0.8
     max_tokens: int = 1200
     strictness: int = 2
+    # Phase 1: role-based fields replacing strictness
+    role_id: str = ""
+    role: dict | None = None  # The AIRole record, loaded in chat.py
+    role_version_id: str = ""
+    enforcement_level: int = 2
+    may_produce_prose: bool = False
+    declared_activity: str = ""  # writer's Monitor declaration
     custom_system_prompt: str = ""
     intensity: str = "balanced"
     arm_id: str = ""

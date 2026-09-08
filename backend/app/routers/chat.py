@@ -16,25 +16,25 @@ from ..db import SessionLocal, get_db
 from ..graph import TurnState
 from ..graph.nodes import (
     agency_enforcer,
-    guardrail_verifier,
+    role_arbiter,
     intent_classifier,
     response_formatter,
-    socratic_engine,
+    response_engine,
 )
 from ..graph.runner import GRAPH_SPEC
 from ..models import (
-    ConversationTurn, ExperimentArm, PromptConfig, StoryWorkspace, TelemetryEvent, User,
+    AIRole, ConversationTurn, ExperimentArm, PromptConfig, StoryWorkspace, TelemetryEvent, User,
 )
 from ..prompts import DEFAULT_INTENSITY, SCAFFOLD_INTENSITY
-from .experiments import default_arm
+from .experiments import default_arm, ensure_default_roles
 from ..schemas import TurnRequest
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
 _NODES = [
     ("intent_classifier", intent_classifier),
-    ("guardrail_verifier", guardrail_verifier),
-    ("socratic_engine", socratic_engine),
+    ("role_arbiter", role_arbiter),
+    ("response_engine", response_engine),
     ("response_formatter", response_formatter),
     ("agency_enforcer", agency_enforcer),
 ]
@@ -42,6 +42,21 @@ _NODES = [
 
 def _active_config(db: Session) -> PromptConfig | None:
     return db.scalar(select(PromptConfig).where(PromptConfig.active_flag.is_(True)))
+
+
+def _role_dict(role: AIRole) -> dict:
+    """The subset of an AIRole the graph needs, as a plain dict (no ORM state)."""
+    return {
+        "role_id": role.role_id,
+        "archetype": role.archetype,
+        "behaviour": role.behaviour,
+        "base_prompt": role.base_prompt,
+        "planning_prompt": role.planning_prompt,
+        "translating_prompt": role.translating_prompt,
+        "reviewing_prompt": role.reviewing_prompt,
+        "may_produce_prose": role.may_produce_prose,
+        "enforcement_level": role.enforcement_level,
+    }
 
 
 def _sse(event: str, data: dict) -> str:
@@ -93,10 +108,17 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
     if arm is None:
         arm = default_arm(db)
 
+    # Phase 1: resolve the AIRole from the arm. Arms are back-filled with a
+    # role_id on every read path, so this normally hits; the fallback only
+    # matters for an arm mutated to an empty role_id mid-request.
+    role = db.get(AIRole, arm.role_id) if (arm and arm.role_id) else None
+    if role is None:
+        seeded = ensure_default_roles(db)
+        role = seeded["ghost"] if (arm and arm.guardrail_strictness == 0) else seeded["tutor"]
+
     provider = (arm.provider if arm else "") or (cfg.provider if cfg else "")
     model = (arm.model_name if arm else "") or (cfg.model_name if cfg else "")
     temperature = arm.temperature if arm else (cfg.temperature if cfg else 0.8)
-    strictness = arm.guardrail_strictness if arm else (cfg.guardrail_strictness if cfg else 2)
     system_prompt = (arm.system_prompt if arm else "") or (cfg.system_prompt if cfg else "")
     intensity = (arm.scaffold_intensity if arm else None) or ws.scaffold_intensity or DEFAULT_INTENSITY
 
@@ -120,7 +142,15 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
         model_override=model,
         temperature=temperature,
         max_tokens=cfg.max_tokens if cfg else 1200,
-        strictness=strictness,
+        strictness=role.enforcement_level,
+        # Phase 1 role-based fields. role_version_id pins the turn to this exact
+        # role row; because edits are append-only, that row never changes.
+        role_id=role.role_id,
+        role=_role_dict(role),
+        role_version_id=role.role_id,
+        enforcement_level=role.enforcement_level,
+        may_produce_prose=role.may_produce_prose,
+        declared_activity=body.declared_activity or "",
         custom_system_prompt=system_prompt,
         intensity=intensity,
         arm_id=arm.arm_id if arm else "",
@@ -139,7 +169,7 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
             extra = {}
             if node_id == "intent_classifier":
                 extra = {"intent": state.intent, "cognitive": state.cognitive}
-            elif node_id == "guardrail_verifier":
+            elif node_id == "role_arbiter":
                 extra = {"intercepted": state.intercepted}
             elif node_id == "agency_enforcer":
                 extra = {"enforcement": state.enforcement}
@@ -152,6 +182,7 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
                 workspace_id=workspace_id, speaker="user", message_text=body.message,
                 intent_type=state.intent, cognitive_activity=state.cognitive,
                 intercepted=state.intercepted, arm_id=state.arm_id,
+                role_version_id=state.role_version_id,
                 scaffold_intensity=state.intensity,
             )
             ai_turn = ConversationTurn(
@@ -159,7 +190,8 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
                 intent_type=state.intent, cognitive_activity=state.cognitive,
                 intercepted=state.intercepted, node_path=state.node_path, suggestions=state.probes,
                 model_name=state.model_name, provider=state.provider_used,
-                arm_id=state.arm_id, scaffold_intensity=state.intensity,
+                arm_id=state.arm_id, role_version_id=state.role_version_id,
+                scaffold_intensity=state.intensity,
                 latency_ms=state.latency_ms,
             )
             s.add_all([user_turn, ai_turn])

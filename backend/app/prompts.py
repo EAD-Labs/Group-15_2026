@@ -199,25 +199,60 @@ forbidden. Do not model phrasing. Questions and observations only."""
 
 def build_system_prompt(
     mode: str,
-    strictness: int,
+    enforcement_level: int,
     intercepted: bool,
     custom: str = "",
     intensity: str = DEFAULT_INTENSITY,
+    role: dict | None = None,
+    activity: str = "",
 ) -> str:
+    """Compose the system prompt from an AIRole record.
+
+    Phase 1: roles are read from the database (via `role` dict) but produce
+    byte-identical output to the previous module-constant approach.
+
+    Phase 2+ (future): `activity` selects a per-activity fragment from
+    role.<activity>_prompt, enabling activity-conditioned behaviour.
+
+    Composition order:
+      role.base_prompt
+      + role.<activity>_prompt          (new in Phase 2; empty in Phase 1)
+      + intercept_addendum   (if the arbiter intercepted)
+      + strictness_addendum  (if enforcement_level >= 2)
+      + intensity_addendum   (existing scaffold intensity)
+    """
     m = MODES.get(mode, MODES["learning_scenario"])
     level = SCAFFOLD_INTENSITY.get(intensity, SCAFFOLD_INTENSITY[DEFAULT_INTENSITY])
 
+    # If a custom prompt is set (from arm.system_prompt or PromptConfig), use it.
+    # Otherwise, read from the role record.
     if custom.strip():
         base = custom
-    elif strictness == 0:
-        # Control condition: a plain assistant, guardrail genuinely disabled.
+    elif role is None:
+        # No role record available yet (bootstrapping / fallback) — use
+        # the old module-constant approach for backward compatibility.
+        if enforcement_level == 0:
+            return CONTROL_SYSTEM_PROMPT.format(mode_label=m["label"])
+        else:
+            base = BASE_SYSTEM_PROMPT.format(mode_label=m["label"], mode_lens=m["lens"])
+    elif role.get("may_produce_prose", False) and role.get("enforcement_level", 2) == 0:
+        # Ghost baseline: plain assistant behaviour, guardrail genuinely off.
+        # This mirrors the old strictness == 0 → CONTROL_SYSTEM_PROMPT path.
         return CONTROL_SYSTEM_PROMPT.format(mode_label=m["label"])
     else:
-        base = BASE_SYSTEM_PROMPT.format(mode_label=m["label"], mode_lens=m["lens"])
+        # Phase 1: read base_prompt from the AIRole record.
+        base = role.get("base_prompt", BASE_SYSTEM_PROMPT).format(
+            mode_label=m["label"], mode_lens=m["lens"]
+        )
+        # Phase 2: append per-activity fragment (empty in Phase 1 seed data)
+        if activity and activity != "other":
+            frag = role.get(f"{activity}_prompt", "")
+            if frag.strip():
+                base += "\n\n" + frag
 
     if intercepted:
         base += INTERCEPT_ADDENDUM
-    if strictness >= 2:
+    if enforcement_level >= 2:
         base += STRICT_ADDENDUM
     # Intensity last so it can override the word budget set above.
     base += level["addendum"]

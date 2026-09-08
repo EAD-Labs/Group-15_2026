@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import type { Arm, Comparison, Provider, SessionUser } from "@/lib/types";
+import type { AIRole, Arm, Comparison, Provider, SessionUser } from "@/lib/types";
 import { ConditionCard } from "@/components/ConditionCard";
+import { RoleCard } from "@/components/RoleCard";
 import { OutcomeTable } from "@/components/OutcomeTable";
 import { PortalHeader } from "@/components/PortalHeader";
 import { PortalLoading, usePortal } from "@/components/PortalGuard";
@@ -41,6 +42,7 @@ function Section({ n, title, hint, action, children }: {
 export default function StudyPage() {
   const { user, checked } = usePortal("researcher");
   const [arms, setArms] = useState<Arm[]>([]);
+  const [roles, setRoles] = useState<AIRole[]>([]);
   const [cmp, setCmp] = useState<Comparison | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [participants, setParticipants] = useState<SessionUser[]>([]);
@@ -48,10 +50,10 @@ export default function StudyPage() {
   const [live, setLive] = useState(true);
 
   const refresh = useCallback(async () => {
-    const [a, c, p, u] = await Promise.all([
-      api.arms(), api.compare(), api.providers(), api.participants(),
+    const [a, r, c, p, u] = await Promise.all([
+      api.arms(), api.roles(), api.compare(), api.providers(), api.participants(),
     ]);
-    setArms(a); setCmp(c); setProviders(p.providers); setParticipants(u);
+    setArms(a); setRoles(r); setCmp(c); setProviders(p.providers); setParticipants(u);
   }, []);
 
   useEffect(() => { if (checked) refresh().catch(console.error); }, [checked, refresh]);
@@ -69,6 +71,15 @@ export default function StudyPage() {
     await api.updateArm(armId, body);
     refresh();
   };
+
+  const saveRole = async (roleId: string, body: Partial<AIRole>) => {
+    // Append-only server-side: a new version row is written and every condition
+    // that used the old one is repointed, so refresh both lists.
+    await api.updateRole(roleId, body);
+    note("Role saved as a new version");
+    refresh();
+  };
+  const armsUsingRole = (roleId: string) => arms.filter((a) => a.role_id === roleId).length;
 
   const unassigned = cmp?.unassigned_participants ?? 0;
 
@@ -124,6 +135,7 @@ export default function StudyPage() {
                 key={a.arm_id}
                 arm={a}
                 providers={providers}
+                roles={roles}
                 onChange={(b) => patch(a.arm_id, b)}
                 onDelete={async () => { await api.deleteArm(a.arm_id); note("Deleted"); refresh(); }}
               />
@@ -131,9 +143,47 @@ export default function StudyPage() {
           </div>
         </Section>
 
-        {/* ---- 02 who is in what ------------------------------------------ */}
+        {/* ---- 02 the AI roles conditions choose from ------------------- */}
         <Section
           n="02"
+          title="AI roles"
+          hint="the behaviour a condition points at — editable here, no redeploy"
+          action={
+            <button
+              onClick={async () => {
+                const tutor = roles.find((r) => r.archetype === "tutor");
+                await api.createRole({
+                  name: `Role ${roles.length + 1}`,
+                  archetype: "custom",
+                  behaviour: "custom",
+                  base_prompt: tutor?.base_prompt ?? "",
+                  enforcement_level: 2,
+                });
+                note("Role added");
+                refresh();
+              }}
+              className="rounded-md border border-dashed border-[var(--color-margin-edge)] px-2.5 py-1 text-[11.5px] text-[var(--color-ink-soft)] transition-colors hover:border-[var(--color-accent-line)] hover:text-[var(--color-accent)]"
+            >
+              + Add
+            </button>
+          }
+        >
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            {roles.map((r) => (
+              <RoleCard
+                key={r.role_id}
+                role={r}
+                usedByCount={armsUsingRole(r.role_id)}
+                onSave={(b) => saveRole(r.role_id, b)}
+                onDelete={async () => { await api.deleteRole(r.role_id); note("Deleted"); refresh(); }}
+              />
+            ))}
+          </div>
+        </Section>
+
+        {/* ---- 03 who is in what ------------------------------------------ */}
+        <Section
+          n="03"
           title="Participants"
           hint={`${participants.length} total${unassigned ? ` · ${unassigned} unassigned` : ""}`}
           action={
@@ -180,8 +230,8 @@ export default function StudyPage() {
           </div>
         </Section>
 
-        {/* ---- 03 what happened ------------------------------------------- */}
-        <Section n="03" title="Results" hint="change one variable, read the effect">
+        {/* ---- 04 what happened ------------------------------------------- */}
+        <Section n="04" title="Results" hint="change one variable, read the effect">
           <OutcomeTable arms={cmp?.arms ?? []} />
           {cmp && (
             <details className="group mt-2.5">

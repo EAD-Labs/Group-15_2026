@@ -16,24 +16,26 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..db import get_db
 from ..metrics import agency_report
-from ..models import ConversationTurn, ExperimentArm, StoryWorkspace, TelemetryEvent, User
-from ..prompts import SCAFFOLD_INTENSITY
+from ..models import AIRole, ConversationTurn, ExperimentArm, StoryWorkspace, TelemetryEvent, User
+from ..prompts import BASE_SYSTEM_PROMPT, CONTROL_SYSTEM_PROMPT, SCAFFOLD_INTENSITY
 from ..schemas import ArmIn, ArmOut, AssignIn
 
 router = APIRouter(prefix="/api/research/experiments", tags=["experiments"])
 
 
-def _out(a: ExperimentArm, n_participants: int = 0) -> ArmOut:
+def _out(a: ExperimentArm, n_participants: int = 0, role: AIRole | None = None) -> ArmOut:
     return ArmOut(
         arm_id=a.arm_id, name=a.name, description=a.description,
         provider=a.provider, model_name=a.model_name, temperature=a.temperature,
         guardrail_strictness=a.guardrail_strictness,
+        role_id=a.role_id,
         scaffold_intensity=a.scaffold_intensity, system_prompt=a.system_prompt,
         allow_student_intensity=a.allow_student_intensity,
         allow_student_model=a.allow_student_model,
         allowed_providers=a.allowed_providers or [],
         is_control=a.is_control, is_default=a.is_default, active=a.active,
         participants=n_participants,
+        role_name=role.name if role else None,
     )
 
 
@@ -45,16 +47,97 @@ def _counts(db: Session) -> dict[str, int]:
     return dict(c)
 
 
+def ensure_default_roles(db: Session) -> dict[str, AIRole]:
+    """Seed the two default roles on first boot, mirroring today's arms exactly.
+
+    Returns a dict keyed by archetype name for easy lookup.
+    Socratic Tutor: guardrail_strictness == 2 equivalent.
+    Ghost baseline: guardrail_strictness == 0 equivalent.
+    """
+    # Order by version so that, once a role has been edited, the archetype key
+    # resolves to its latest version rather than an arbitrary one.
+    existing = {
+        r.archetype: r
+        for r in db.scalars(select(AIRole).order_by(AIRole.version))
+    }
+    roles = {}
+
+    if "tutor" not in existing:
+        tutor = AIRole(
+            name="Socratic Tutor",
+            archetype="tutor",
+            behaviour="socratic_questioning",
+            base_prompt=BASE_SYSTEM_PROMPT,
+            planning_prompt="",
+            translating_prompt="",
+            reviewing_prompt="",
+            may_produce_prose=False,
+            enforcement_level=2,
+        )
+        db.add(tutor)
+        roles["tutor"] = tutor
+    else:
+        roles["tutor"] = existing["tutor"]
+
+    if "ghost" not in existing:
+        ghost = AIRole(
+            name="Ghost baseline",
+            archetype="ghost",
+            behaviour="direct_generation",
+            base_prompt=CONTROL_SYSTEM_PROMPT,
+            planning_prompt="",
+            translating_prompt="",
+            reviewing_prompt="",
+            may_produce_prose=True,
+            enforcement_level=0,
+        )
+        db.add(ghost)
+        roles["ghost"] = ghost
+    else:
+        roles["ghost"] = existing["ghost"]
+
+    db.commit()
+    # Refresh to get role_ids populated
+    for r in roles.values():
+        db.refresh(r)
+    return roles
+
+
+def backfill_arm_roles(db: Session) -> None:
+    """Attach a role to any arm created before the role seam existed.
+
+    Uses the same mapping the pre-role system implied: guardrail_strictness == 0
+    is a Ghost, everything else is a Socratic Tutor. Idempotent and cheap, so
+    it is safe to call from any read path.
+    """
+    missing = list(db.scalars(
+        select(ExperimentArm).where(
+            (ExperimentArm.role_id == "") | (ExperimentArm.role_id.is_(None))
+        )
+    ))
+    if not missing:
+        return
+    roles = ensure_default_roles(db)
+    for arm in missing:
+        target = roles["ghost"] if arm.guardrail_strictness == 0 else roles["tutor"]
+        arm.role_id = target.role_id
+    db.commit()
+
+
 def ensure_default_arms(db: Session) -> None:
     """Seed a two-arm study so the comparison view is never empty on arrival."""
     if db.scalar(select(ExperimentArm)):
+        backfill_arm_roles(db)
         return
+    roles = ensure_default_roles(db)
+
     db.add_all([
         ExperimentArm(
             name="Socratic guardrail", is_control=False, is_default=True,
             description="The intervention: executive requests are intercepted and "
                         "converted into questions.",
             provider=settings.effective_provider, guardrail_strictness=2,
+            role_id=roles["tutor"].role_id,
             scaffold_intensity="balanced", allow_student_intensity=True,
             allow_student_model=True, allowed_providers=["gemini", "ollama", "echo"],
         ),
@@ -63,6 +146,7 @@ def ensure_default_arms(db: Session) -> None:
             description="Control: an ordinary AI writing assistant that complies "
                         "with requests to write.",
             provider=settings.effective_provider, guardrail_strictness=0,
+            role_id=roles["ghost"].role_id,
             scaffold_intensity="balanced", allow_student_intensity=True,
             allow_student_model=True, allowed_providers=["gemini", "ollama", "echo"],
         ),
@@ -70,22 +154,32 @@ def ensure_default_arms(db: Session) -> None:
     db.commit()
 
 
+def _role_map(db: Session) -> dict[str, AIRole]:
+    return {r.role_id: r for r in db.scalars(select(AIRole))}
+
+
 @router.get("", response_model=list[ArmOut])
 def list_arms(db: Session = Depends(get_db)):
     ensure_default_arms(db)
     counts = _counts(db)
+    roles = _role_map(db)
     rows = db.scalars(select(ExperimentArm).order_by(ExperimentArm.created_at))
-    return [_out(a, counts.get(a.arm_id, 0)) for a in rows]
+    return [_out(a, counts.get(a.arm_id, 0), roles.get(a.role_id)) for a in rows]
 
 
 @router.post("", response_model=ArmOut)
 def create_arm(body: ArmIn, db: Session = Depends(get_db)):
-    arm = ExperimentArm(**body.model_dump(exclude_none=True))
+    data = body.model_dump(exclude_none=True)
+    if not data.get("role_id"):
+        # A condition without a role is not a valid experiment. Default to the
+        # Socratic Tutor, matching where an unassigned participant lands.
+        data["role_id"] = ensure_default_roles(db)["tutor"].role_id
+    arm = ExperimentArm(**data)
     db.add(arm)
     db.add(TelemetryEvent(event_type="arm_created", payload={"name": arm.name}))
     db.commit()
     db.refresh(arm)
-    return _out(arm)
+    return _out(arm, 0, db.get(AIRole, arm.role_id) if arm.role_id else None)
 
 
 @router.patch("/{arm_id}", response_model=ArmOut)
@@ -94,6 +188,15 @@ def update_arm(arm_id: str, body: ArmIn, db: Session = Depends(get_db)):
     if not arm:
         raise HTTPException(404, "Condition not found")
     changes = body.model_dump(exclude_none=True)
+    # Record the actual before/after values, not just the field names. A
+    # condition edited mid-study must still be reconstructable from telemetry
+    # (iteration-2 plan, D1). Full arm versioning is deferred; this closes the
+    # "can't tell before from after" gap in the meantime.
+    diff = {
+        k: {"from": getattr(arm, k, None), "to": v}
+        for k, v in changes.items()
+        if getattr(arm, k, None) != v
+    }
     for flag in ("is_default", "is_control"):
         if changes.get(flag):
             for other in db.scalars(select(ExperimentArm).where(ExperimentArm.arm_id != arm_id)):
@@ -102,11 +205,12 @@ def update_arm(arm_id: str, body: ArmIn, db: Session = Depends(get_db)):
         setattr(arm, k, v)
     db.add(TelemetryEvent(
         event_type="arm_updated",
-        payload={"arm_id": arm_id, "changes": list(changes)},
+        payload={"arm_id": arm_id, "changes": diff},
     ))
     db.commit()
     db.refresh(arm)
-    return _out(arm, _counts(db).get(arm_id, 0))
+    role = db.get(AIRole, arm.role_id) if arm.role_id else None
+    return _out(arm, _counts(db).get(arm_id, 0), role)
 
 
 @router.delete("/{arm_id}")
@@ -255,6 +359,7 @@ def compare(db: Session = Depends(get_db)):
 def default_arm(db: Session) -> ExperimentArm | None:
     """Where a participant with no assignment lands."""
     ensure_default_arms(db)
+    backfill_arm_roles(db)
     return (
         db.scalar(select(ExperimentArm).where(ExperimentArm.is_default.is_(True)))
         or db.scalar(select(ExperimentArm).order_by(ExperimentArm.created_at))

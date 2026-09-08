@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { Arm, Intensity, Provider } from "@/lib/types";
+import type { AIRole, Arm, Intensity, Provider } from "@/lib/types";
 
-const STRICTNESS = ["off", "balanced", "strict"];
 const INTENSITIES: Intensity[] = ["light", "balanced", "deep"];
 
 /**
@@ -14,14 +13,17 @@ const INTENSITIES: Intensity[] = ["light", "balanced", "deep"];
  * something - eight always-visible dropdowns made the page feel like a
  * settings screen rather than a study.
  */
-export function ConditionCard({ arm, providers, onChange, onDelete }: {
+export function ConditionCard({ arm, providers, roles, onChange, onDelete }: {
   arm: Arm;
   providers: Provider[];
+  roles: AIRole[];
   onChange: (body: Partial<Arm>) => void;
   onDelete: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const providerLabel = providers.find((p) => p.id === arm.provider)?.label ?? arm.provider;
+  const role = roles.find((r) => r.role_id === arm.role_id);
+  const roleLabel = role?.name ?? arm.role_name ?? "no role";
 
   return (
     <div className={[
@@ -52,8 +54,8 @@ export function ConditionCard({ arm, providers, onChange, onDelete }: {
 
           {/* The whole configuration as one scannable line. */}
           <div className="mt-1.5 font-mono text-[10.5px] text-[var(--color-ink-faint)]">
-            {providerLabel} · guardrail {STRICTNESS[arm.guardrail_strictness]} ·{" "}
-            {arm.scaffold_intensity} · t{arm.temperature.toFixed(2)}
+            {providerLabel} · {roleLabel} · {arm.scaffold_intensity} ·{" "}
+            t{arm.temperature.toFixed(2)}
           </div>
         </div>
 
@@ -84,12 +86,15 @@ export function ConditionCard({ arm, providers, onChange, onDelete }: {
                 {providers.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
               </select>
             </Field>
-            <Field label="guardrail">
-              <select value={arm.guardrail_strictness}
-                      onChange={(e) => onChange({ guardrail_strictness: +e.target.value })}
+            <Field label="AI role">
+              <select value={arm.role_id}
+                      onChange={(e) => onChange({ role_id: e.target.value })}
                       className={selectCls}>
-                {STRICTNESS.map((l, i) => (
-                  <option key={i} value={i}>{i === 0 ? "off — writes freely" : l}</option>
+                {roles.length === 0 && <option value="">no roles defined</option>}
+                {roles.map((r) => (
+                  <option key={r.role_id} value={r.role_id}>
+                    {r.name}{r.may_produce_prose ? " — writes freely" : ""}
+                  </option>
                 ))}
               </select>
             </Field>
@@ -107,12 +112,12 @@ export function ConditionCard({ arm, providers, onChange, onDelete }: {
             </Field>
           </div>
 
-          <Field label="socratic scaffold — blank uses the built-in prompt">
+          <Field label="custom system prompt — blank uses the role's prompt">
             <textarea
               value={arm.system_prompt}
               onChange={(e) => onChange({ system_prompt: e.target.value })}
               rows={4}
-              placeholder="Leave blank to use the default Socratic prompt."
+              placeholder="Leave blank to use the selected role's prompt."
               className="thin-scroll w-full resize-none rounded border border-[var(--color-margin-edge)] bg-[var(--color-margin)]/50 p-2 font-mono text-[10.5px] leading-relaxed text-[var(--color-ink)] outline-none focus:border-[var(--color-accent-line)]"
             />
           </Field>

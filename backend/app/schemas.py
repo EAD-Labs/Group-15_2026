@@ -22,6 +22,7 @@ class ArmIn(BaseModel):
     model_name: str | None = None
     temperature: float | None = None
     guardrail_strictness: int | None = None
+    role_id: str | None = None
     scaffold_intensity: str | None = None
     system_prompt: str | None = None
     allow_student_intensity: bool | None = None
@@ -40,6 +41,8 @@ class ArmOut(BaseModel):
     model_name: str
     temperature: float
     guardrail_strictness: int
+    role_id: str = ""
+    role_name: str | None = None
     scaffold_intensity: str
     system_prompt: str
     allow_student_intensity: bool
@@ -49,6 +52,34 @@ class ArmOut(BaseModel):
     is_default: bool
     active: bool
     participants: int = 0
+
+
+class RoleIn(BaseModel):
+    name: str | None = None
+    archetype: str | None = None
+    behaviour: str | None = None
+    base_prompt: str | None = None
+    planning_prompt: str | None = None
+    translating_prompt: str | None = None
+    reviewing_prompt: str | None = None
+    may_produce_prose: bool | None = None
+    enforcement_level: int | None = None
+
+
+class RoleOut(BaseModel):
+    role_id: str
+    name: str
+    archetype: str
+    behaviour: str
+    base_prompt: str
+    planning_prompt: str
+    translating_prompt: str
+    reviewing_prompt: str
+    may_produce_prose: bool
+    enforcement_level: int
+    version: int
+    parent_role_id: str
+    created_at: str
 
 
 class AssignIn(BaseModel):
@@ -98,6 +129,10 @@ class TurnRequest(BaseModel):
     provider: str = ""
     model: str = ""
     intensity: str = ""
+    # Flower & Hayes "Monitor": the writer's own declaration of what they are
+    # doing right now. Stored alongside the detected activity; not yet used to
+    # condition behaviour (that is Phase 2).
+    declared_activity: str = ""
 
 
 class TurnOut(BaseModel):

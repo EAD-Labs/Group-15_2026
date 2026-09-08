@@ -3,8 +3,8 @@
 Maps directly onto HLD 7.1 and 6.1 Module 2:
 
   intent_classifier   -> Node 1: Intent & Help-Seeking Classifier
-  guardrail_verifier  -> Node 2: Guardrail Verifier (Helsinki Filter)
-  socratic_engine     -> Node 3: Socratic Dialogue & Refinement Loop
+  role_arbiter        -> Node 2: Role Arbiter (resolves role × activity × intent)
+  response_engine     -> Node 3: Response Engine (LLM dialogue call)
   response_formatter  -> Node 4: Prompt Template Formatter
   agency_enforcer     -> Module 2(iii): Agency Enforcer
 
@@ -122,22 +122,23 @@ def _cognitive_fallback(message: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Node 2 - Guardrail Verifier (Helsinki Filter)
+# Node 2 - Role Arbiter
 # ---------------------------------------------------------------------------
 
-async def guardrail_verifier(state: TurnState) -> TurnState:
-    state.visit("guardrail_verifier")
-    # Executive help-seeking is the thing the whole system exists to intercept.
-    state.intercepted = state.intent == "executive" and state.strictness >= 1
+async def role_arbiter(state: TurnState) -> TurnState:
+    state.visit("role_arbiter")
+    # Executive help-seeking is the thing the system intercepts under Tutor roles.
+    state.intercepted = state.intent == "executive" and state.enforcement_level >= 1
     state.system_prompt = prompts.build_system_prompt(
-        state.mode, state.strictness, state.intercepted,
+        state.mode, state.enforcement_level, state.intercepted,
         state.custom_system_prompt, state.intensity,
+        state.role, state.declared_activity,
     )
     return state
 
 
 # ---------------------------------------------------------------------------
-# Node 3 - Socratic Dialogue & Refinement Loop
+# Node 3 - Response Engine (LLM Dialogue Call)
 # ---------------------------------------------------------------------------
 
 def _build_user_prompt(state: TurnState) -> str:
@@ -164,8 +165,8 @@ def _build_user_prompt(state: TurnState) -> str:
     return "\n\n".join(parts)
 
 
-async def socratic_engine(state: TurnState) -> TurnState:
-    state.visit("socratic_engine")
+async def response_engine(state: TurnState) -> TurnState:
+    state.visit("response_engine")
     state.user_prompt = _build_user_prompt(state)
 
     level = prompts.SCAFFOLD_INTENSITY.get(
@@ -189,7 +190,7 @@ async def socratic_engine(state: TurnState) -> TurnState:
         state.error = str(exc)
         # Degrading silently would hide real outages behind plausible output,
         # so the reason is always logged even though the student never sees it.
-        log.warning("socratic_engine: %s failed (%s); falling back to offline scaffold",
+        log.warning("response_engine: %s failed (%s); falling back to offline scaffold",
                     state.provider_name or "default", exc)
         # Graceful degradation: fall back to the offline scaffold rather than
         # showing the student an error where a question should be.
@@ -324,15 +325,33 @@ async def agency_enforcer(state: TurnState) -> TurnState:
     state.visit("agency_enforcer")
     text = state.response_text
 
-    if state.strictness == 0:
-        # The control arm deliberately allows prose, but an empty bubble is a
-        # failure in any condition - never render one.
+    # The enforcer always runs and always records that it ran. What it *does*
+    # depends on the role's contract rather than an absolute rule.
+    #
+    # A Ghost (archetype=ghost, may_produce_prose=True, enforcement_level=0) is
+    # meant to write prose, so there is nothing to strip - but the turn is still
+    # logged as having passed through here, which is the control-arm telemetry
+    # the old strictness==0 early-return silently dropped.
+    if state.may_produce_prose:
+        state.enforcement.append("prose_permitted_by_role")
         if not text.strip():
             state.enforcement.append("substituted_empty_response")
             state.response_text = (
                 "That came back empty. Try asking again, or rephrase what you "
                 "are stuck on."
             )
+        else:
+            state.response_text = text.strip()
+        return state
+
+    # From here down the role forbids prose. This is byte-for-byte the pre-role
+    # strictness>=1 path, with enforcement_level standing in for strictness.
+    if not text.strip():
+        state.enforcement.append("substituted_empty_response")
+        state.response_text = (
+            "That came back empty. Try asking again, or rephrase what you "
+            "are stuck on."
+        )
         return state
 
     if _DIALOGUE_RE.search(text):
@@ -344,7 +363,9 @@ async def agency_enforcer(state: TurnState) -> TurnState:
         text = _LEAD_IN_RE.split(text)[0]
 
     # The decisive check: narrative continuation using the student's own cast.
-    if state.strictness >= 1 and _looks_like_narrative(text, state.draft):
+    # Enforced at enforcement_level >= 1 for tutor/partner roles; Ghost is exempt
+    # because producing prose is its declared behaviour.
+    if state.enforcement_level >= 1 and _looks_like_narrative(text, state.draft):
         state.enforcement.append("blocked_narrative_continuation")
         text = (
             "I started writing the scene there, which is not mine to write. "
@@ -352,7 +373,8 @@ async def agency_enforcer(state: TurnState) -> TurnState:
         )
 
     # A long block with no question mark is prose, not scaffolding.
-    if state.strictness >= 2 and len(text.split()) > 110 and "?" not in text:
+    # Enforced at enforcement_level >= 2.
+    if state.enforcement_level >= 2 and len(text.split()) > 110 and "?" not in text:
         state.enforcement.append("truncated_prose_block")
         sentences = re.split(r"(?<=[.!?])\s+", text)
         text = " ".join(sentences[:2])

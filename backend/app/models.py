@@ -1,6 +1,10 @@
 """Data entities. These mirror HLD 8.2 field-for-field.
 
 User | StoryWorkspace | ConversationTurn | TelemetryEvent | PromptConfig
+
+Iteration 2 adds AIRole (configurable, versioned AI roles) and gives
+ExperimentArm a role_id / ConversationTurn a role_version_id so a turn is
+always traceable to the exact prompt text that produced it.
 """
 import uuid
 from datetime import datetime, timezone
@@ -17,6 +21,38 @@ def _uuid() -> str:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+class AIRole(Base):
+    """A configurable AI role, versioned so researchers can edit behaviour
+    without a redeploy.
+
+    Based on Steinhoff & Lehnen's Ghost / Partner / Tutor model.
+    Edits create a new version (parent_role_id chain) rather than mutating
+    in place, so turns are always traceable to the exact prompt that produced them.
+    """
+    __tablename__ = "ai_roles"
+
+    role_id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String, default="Untitled Role")
+    # Steinhoff & Lehnen archetypes: ghost | partner | tutor | custom
+    archetype: Mapped[str] = mapped_column(String, default="tutor")
+    # Behaviour: socratic_questioning | brainstorming | critical_reflection |
+    # direct_generation | custom
+    behaviour: Mapped[str] = mapped_column(String, default="socratic_questioning")
+    base_prompt: Mapped[str] = mapped_column(Text, default="")
+    # Per-activity heuristics (Flower & Hayes writing activities)
+    planning_prompt: Mapped[str] = mapped_column(Text, default="")
+    translating_prompt: Mapped[str] = mapped_column(Text, default="")
+    reviewing_prompt: Mapped[str] = mapped_column(Text, default="")
+    # Replaces guardrail_strictness == 0 for the Ghost condition
+    may_produce_prose: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 0..2, how strictly we police the role's contract
+    enforcement_level: Mapped[int] = mapped_column(Integer, default=2)
+    # Versioning fields - edits create new rows, never mutate
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    parent_role_id: Mapped[str] = mapped_column(String, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
 class ExperimentArm(Base):
@@ -36,6 +72,9 @@ class ExperimentArm(Base):
     model_name: Mapped[str] = mapped_column(String, default="")
     temperature: Mapped[float] = mapped_column(Float, default=0.8)
     guardrail_strictness: Mapped[int] = mapped_column(Integer, default=2)
+    # Phase 1: role_id points to the configured AIRole.
+    # guardrail_strictness kept through Phase 2 for rollback safety, see plan §8 D2.
+    role_id: Mapped[str] = mapped_column(String, default="", index=True)
     scaffold_intensity: Mapped[str] = mapped_column(String, default="balanced")
     system_prompt: Mapped[str] = mapped_column(Text, default="")
 
@@ -112,6 +151,8 @@ class ConversationTurn(Base):
     provider: Mapped[str] = mapped_column(String, default="")
     # Condition and intensity in force for this specific turn.
     arm_id: Mapped[str] = mapped_column(String, default="", index=True)
+    # Traces this turn to the exact role version that produced it (defect D1)
+    role_version_id: Mapped[str] = mapped_column(String, default="")
     scaffold_intensity: Mapped[str] = mapped_column(String, default="")
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=_now)

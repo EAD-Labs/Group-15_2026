@@ -40,6 +40,24 @@ export type StudentOptions = {
   providers: Provider[];
 };
 
+export type Archetype = "ghost" | "partner" | "tutor" | "custom";
+
+export type AIRole = {
+  role_id: string;
+  name: string;
+  archetype: Archetype;
+  behaviour: string;
+  base_prompt: string;
+  planning_prompt: string;
+  translating_prompt: string;
+  reviewing_prompt: string;
+  may_produce_prose: boolean;
+  enforcement_level: number;
+  version: number;
+  parent_role_id: string;
+  created_at: string;
+};
+
 export type Arm = {
   arm_id: string;
   name: string;
@@ -48,6 +66,8 @@ export type Arm = {
   model_name: string;
   temperature: number;
   guardrail_strictness: number;
+  role_id: string;
+  role_name?: string | null;
   scaffold_intensity: Intensity;
   system_prompt: string;
   allow_student_intensity: boolean;

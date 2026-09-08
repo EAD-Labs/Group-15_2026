@@ -9,7 +9,7 @@ import json
 from collections import Counter
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -17,10 +17,14 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..db import get_db
 from ..metrics import agency_report
-from ..models import ConversationTurn, PromptConfig, StoryWorkspace, TelemetryEvent, User
+from ..models import (
+    AIRole, ConversationTurn, ExperimentArm, PromptConfig, StoryWorkspace,
+    TelemetryEvent, User,
+)
 from ..prompts import BASE_SYSTEM_PROMPT
 from ..providers import available_providers, get_provider
-from ..schemas import ConfigIn, EventIn
+from ..schemas import ConfigIn, EventIn, RoleIn, RoleOut
+from .experiments import ensure_default_roles
 
 router = APIRouter(prefix="/api/research", tags=["research"])
 
@@ -81,6 +85,127 @@ def update_config(body: ConfigIn, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(cfg)
     return {"ok": True, "changed": list(changes.keys()), "config_id": cfg.config_id}
+
+
+# --------------------------------------------------------------------------
+# Configurable AI roles (Steinhoff & Lehnen Ghost / Partner / Tutor)
+#
+# This is the seam the client asked for: roles are data, editable from here
+# without a redeploy. Edits are append-only - a PATCH writes a new version row
+# and repoints the conditions that used the old one, so a turn tagged with a
+# role version can always be traced to the exact prompt text that produced it
+# (iteration-2 plan, defect D1).
+# --------------------------------------------------------------------------
+
+_ROLE_FIELDS = (
+    "name", "archetype", "behaviour", "base_prompt", "planning_prompt",
+    "translating_prompt", "reviewing_prompt", "may_produce_prose",
+    "enforcement_level",
+)
+
+
+def _role_out(r: AIRole) -> RoleOut:
+    return RoleOut(
+        role_id=r.role_id, name=r.name, archetype=r.archetype,
+        behaviour=r.behaviour, base_prompt=r.base_prompt,
+        planning_prompt=r.planning_prompt,
+        translating_prompt=r.translating_prompt,
+        reviewing_prompt=r.reviewing_prompt,
+        may_produce_prose=r.may_produce_prose,
+        enforcement_level=r.enforcement_level,
+        version=r.version, parent_role_id=r.parent_role_id,
+        created_at=r.created_at.isoformat(),
+    )
+
+
+@router.get("/roles", response_model=list[RoleOut])
+def list_roles(db: Session = Depends(get_db)):
+    ensure_default_roles(db)
+    rows = db.scalars(select(AIRole).order_by(AIRole.created_at))
+    return [_role_out(r) for r in rows]
+
+
+@router.post("/roles", response_model=RoleOut)
+def create_role(body: RoleIn, db: Session = Depends(get_db)):
+    role = AIRole(**body.model_dump(exclude_none=True))
+    db.add(role)
+    db.add(TelemetryEvent(
+        event_type="role_created",
+        payload={"name": role.name, "archetype": role.archetype},
+    ))
+    db.commit()
+    db.refresh(role)
+    return _role_out(role)
+
+
+@router.patch("/roles/{role_id}", response_model=RoleOut)
+def update_role(role_id: str, body: RoleIn, db: Session = Depends(get_db)):
+    """Append-only edit: write a new version, repoint arms, leave the old row.
+
+    Mutating in place would make every turn already tagged with this role
+    unreproducible - see the iteration-2 plan, D1. The old row stays so past
+    turns keep pointing at the prompt text they were actually produced with.
+    """
+    current = db.get(AIRole, role_id)
+    if not current:
+        raise HTTPException(404, "Role not found")
+
+    changes = body.model_dump(exclude_none=True)
+    if not changes:
+        return _role_out(current)
+
+    new_role = AIRole(
+        version=current.version + 1,
+        parent_role_id=current.role_id,
+        **{f: changes.get(f, getattr(current, f)) for f in _ROLE_FIELDS},
+    )
+    db.add(new_role)
+    db.flush()  # assign new_role.role_id before repointing
+
+    repointed = 0
+    for arm in db.scalars(select(ExperimentArm).where(ExperimentArm.role_id == role_id)):
+        arm.role_id = new_role.role_id
+        repointed += 1
+
+    db.add(TelemetryEvent(
+        event_type="role_updated",
+        payload={
+            "from_role_id": role_id, "to_role_id": new_role.role_id,
+            "version": new_role.version, "changes": list(changes),
+            "arms_repointed": repointed,
+        },
+    ))
+    db.commit()
+    db.refresh(new_role)
+    return _role_out(new_role)
+
+
+@router.delete("/roles/{role_id}")
+def delete_role(role_id: str, db: Session = Depends(get_db)):
+    role = db.get(AIRole, role_id)
+    if not role:
+        raise HTTPException(404, "Role not found")
+    if db.scalar(select(ExperimentArm).where(ExperimentArm.role_id == role_id)):
+        raise HTTPException(
+            409, "Role is in use by a condition; point that condition at "
+                 "another role first."
+        )
+    # An older version row a turn was produced under must stay - deleting it
+    # would leave that turn's role_version_id dangling and break traceability
+    # (iteration-2 plan, D1).
+    if db.scalar(select(ConversationTurn).where(ConversationTurn.role_version_id == role_id)):
+        raise HTTPException(
+            409, "Turns were produced under this role version; it is kept for "
+                 "reproducibility and cannot be deleted."
+        )
+    if db.scalar(select(AIRole).where(AIRole.parent_role_id == role_id)):
+        raise HTTPException(
+            409, "A newer version descends from this role; it is kept as part "
+                 "of the version chain."
+        )
+    db.delete(role)
+    db.commit()
+    return {"ok": True}
 
 
 # --------------------------------------------------------------------------

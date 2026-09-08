@@ -32,7 +32,7 @@ export function NodePipeline({
     <div className={compact ? "flex flex-wrap items-center gap-1" : "space-y-1.5"}>
       {nodes.map((n, i) => {
         const s = status[n.id] ?? "idle";
-        const isGuard = n.id === "guardrail_verifier";
+        const isGuard = n.id === "role_arbiter";
         const flagged = isGuard && intercepted && s === "done";
 
         return (

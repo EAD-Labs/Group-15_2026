@@ -1,6 +1,6 @@
 import { authHeaders } from "./session";
 import type {
-  Arm, Comparison, GraphNode, Mode, Provider, ResearchConfig, SessionUser,
+  AIRole, Arm, Comparison, GraphNode, Mode, Provider, ResearchConfig, SessionUser,
   StudentOptions, Summary, Template, TelemetryEvent, TimelinePoint, Turn,
   TurnResult, Workspace,
 } from "./types";
@@ -49,6 +49,22 @@ export const api = {
     }),
 
   compare: () => json<Comparison>("/api/research/experiments/compare"),
+
+  roles: () => json<AIRole[]>("/api/research/roles"),
+
+  createRole: (body: Partial<AIRole>) =>
+    json<AIRole>("/api/research/roles", { method: "POST", body: JSON.stringify(body) }),
+
+  // A PATCH is append-only server-side: it returns a *new* version row and
+  // repoints the conditions that used the old one, so callers must refresh
+  // both roles and arms afterwards.
+  updateRole: (roleId: string, body: Partial<AIRole>) =>
+    json<AIRole>(`/api/research/roles/${roleId}`, {
+      method: "PATCH", body: JSON.stringify(body),
+    }),
+
+  deleteRole: (roleId: string) =>
+    json<{ ok: boolean }>(`/api/research/roles/${roleId}`, { method: "DELETE" }),
 
   templates: () => json<{ templates: Template[] }>("/api/templates").then((r) => r.templates),
 
