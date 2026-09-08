@@ -78,10 +78,11 @@ def test_role_edit_is_append_only_and_repoints_arms(client):
     assert new["version"] == tutor["version"] + 1
     assert new["parent_role_id"] == tutor["role_id"]
     assert new["role_id"] != tutor["role_id"]
+    assert new["planning_prompt"] == "During planning, ask about goals."
 
     old = next(r for r in client.get("/api/research/roles").json()
                if r["role_id"] == tutor["role_id"])
-    assert old["planning_prompt"] == ""  # untouched
+    assert old["planning_prompt"] == tutor["planning_prompt"]  # old row untouched
 
     guard_after = next(a for a in client.get("/api/research/experiments").json()
                        if a["arm_id"] == guard["arm_id"])

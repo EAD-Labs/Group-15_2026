@@ -257,6 +257,7 @@ def summary(db: Session = Depends(get_db)):
     user_turns = [t for t in turns if t.speaker == "user"]
     intents = Counter(t.intent_type for t in user_turns if t.intent_type)
     cognitive = Counter(t.cognitive_activity for t in user_turns if t.cognitive_activity)
+    declared = Counter(t.declared_activity for t in user_turns if t.declared_activity)
     intercepts = sum(1 for t in user_turns if t.intercepted)
     latencies = sorted(t.latency_ms for t in ai_turns if t.latency_ms)
 
@@ -296,6 +297,7 @@ def summary(db: Session = Depends(get_db)):
         "median_latency_ms": latencies[len(latencies) // 2] if latencies else 0,
         "intent_distribution": dict(intents),
         "cognitive_distribution": dict(cognitive),
+        "declared_distribution": dict(declared),
         "mean_ai_retention": (
             round(sum(retention_values) / len(retention_values), 3)
             if retention_values else 0.0
@@ -331,6 +333,7 @@ def timeline(workspace_id: str = "", limit: int = 200, db: Session = Depends(get
                 "workspace_id": t.workspace_id,
                 "intent": t.intent_type,
                 "cognitive": t.cognitive_activity,
+                "declared": t.declared_activity,
                 "intercepted": t.intercepted,
                 "message": t.message_text[:120],
                 "timestamp": t.timestamp.isoformat(),
@@ -369,7 +372,7 @@ def export_json(workspace_id: str = "", db: Session = Depends(get_db)):
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "study": "Human-AI Co-Creative Storytelling (ET617 Group 15)",
             "anonymised": True,
-            "schema_version": "1.0",
+            "schema_version": "1.1",
         },
         "workspaces": [
             {
@@ -392,6 +395,7 @@ def export_json(workspace_id: str = "", db: Session = Depends(get_db)):
                 "turn_id": t.turn_id, "workspace_id": t.workspace_id, "speaker": t.speaker,
                 "message_text": t.message_text, "intent_type": t.intent_type,
                 "cognitive_activity": t.cognitive_activity,
+                "declared_activity": t.declared_activity,
                 "intercepted": t.intercepted, "node_path": t.node_path,
                 "suggestions": t.suggestions, "provider": t.provider,
                 "model_name": t.model_name, "latency_ms": t.latency_ms,

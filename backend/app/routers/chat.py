@@ -170,7 +170,10 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
             if node_id == "intent_classifier":
                 extra = {"intent": state.intent, "cognitive": state.cognitive}
             elif node_id == "role_arbiter":
-                extra = {"intercepted": state.intercepted}
+                extra = {
+                    "intercepted": state.intercepted,
+                    "effective_activity": state.effective_activity,
+                }
             elif node_id == "agency_enforcer":
                 extra = {"enforcement": state.enforcement}
             yield _sse("node", {"id": node_id, "status": "done", **extra})
@@ -181,6 +184,7 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
             user_turn = ConversationTurn(
                 workspace_id=workspace_id, speaker="user", message_text=body.message,
                 intent_type=state.intent, cognitive_activity=state.cognitive,
+                declared_activity=state.declared_activity,
                 intercepted=state.intercepted, arm_id=state.arm_id,
                 role_version_id=state.role_version_id,
                 scaffold_intensity=state.intensity,
@@ -188,6 +192,7 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
             ai_turn = ConversationTurn(
                 workspace_id=workspace_id, speaker="ai", message_text=state.response_text,
                 intent_type=state.intent, cognitive_activity=state.cognitive,
+                declared_activity=state.declared_activity,
                 intercepted=state.intercepted, node_path=state.node_path, suggestions=state.probes,
                 model_name=state.model_name, provider=state.provider_used,
                 arm_id=state.arm_id, role_version_id=state.role_version_id,
@@ -224,6 +229,8 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
             "probes": state.probes,
             "intent": state.intent,
             "cognitive": state.cognitive,
+            "declared_activity": state.declared_activity,
+            "effective_activity": state.effective_activity,
             "intensity": state.intensity,
             "intercepted": state.intercepted,
             "node_path": state.node_path,

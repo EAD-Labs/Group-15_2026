@@ -24,6 +24,7 @@ class TurnState:
     enforcement_level: int = 2
     may_produce_prose: bool = False
     declared_activity: str = ""  # writer's Monitor declaration
+    effective_activity: str = ""  # declared if set, else detected; conditions the prompt
     custom_system_prompt: str = ""
     intensity: str = "balanced"
     arm_id: str = ""

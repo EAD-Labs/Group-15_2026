@@ -17,11 +17,20 @@ export type Template = {
 
 export type CognitiveActivity = "planning" | "translation" | "reviewing" | "";
 
+// What the writer declares (Flower & Hayes' Monitor). Spelled "translating" to
+// match the client and the UI copy; the detected axis stores "translation".
+export type DeclaredActivity = "planning" | "translating" | "reviewing" | "";
+
+export const DECLARED_ACTIVITIES: Exclude<DeclaredActivity, "">[] = [
+  "planning", "translating", "reviewing",
+];
+
 export type TimelinePoint = {
   index: number;
   workspace_id: string;
   intent: Intent;
   cognitive: CognitiveActivity;
+  declared: DeclaredActivity;
   intercepted: boolean;
   message: string;
   timestamp: string;
@@ -143,6 +152,7 @@ export type Turn = {
   message_text: string;
   intent_type: Intent;
   cognitive_activity: CognitiveActivity;
+  declared_activity?: DeclaredActivity;
   intercepted: boolean;
   node_path: string[];
   suggestions: string[];
@@ -158,6 +168,8 @@ export type TurnResult = {
   probes: string[];
   intent: Intent;
   cognitive: CognitiveActivity;
+  declared_activity?: DeclaredActivity;
+  effective_activity?: string;
   intensity: Intensity;
   intercepted: boolean;
   node_path: string[];
@@ -216,6 +228,7 @@ export type Summary = {
   median_latency_ms: number;
   intent_distribution: Record<string, number>;
   cognitive_distribution: Record<string, number>;
+  declared_distribution: Record<string, number>;
   mean_ai_retention: number;
   enforcement_actions: Record<string, number>;
   event_count: number;

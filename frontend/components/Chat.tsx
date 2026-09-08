@@ -17,6 +17,28 @@ const COGNITIVE_COPY: Record<string, { label: string; blurb: string; tone: strin
   reviewing: { label: "reviewing", blurb: "judging or revising what exists", tone: "var(--color-cog-review)" },
 };
 
+// "translation" (detected) and "translating" (declared) are the same activity.
+const sameActivity = (a: string, b: string) =>
+  (a === "translation" ? "translating" : a) === (b === "translation" ? "translating" : b);
+
+/** The writer's own declaration (Monitor), shown only when they made one. */
+function DeclaredChip({ declared, detected }: { declared: string; detected: string }) {
+  if (!declared) return null;
+  const agrees = sameActivity(declared, detected);
+  return (
+    <span
+      title={
+        agrees
+          ? "You said what you were doing, and the classifier agrees"
+          : `You said ${declared}; the classifier read this as ${detected === "translation" ? "translating" : detected}`
+      }
+      className="inline-flex items-center gap-1 rounded-full border border-dashed border-[var(--color-margin-edge)] px-2 py-[3px] font-mono text-[10px] tracking-tight text-[var(--color-ink-faint)]"
+    >
+      you: {declared}{!agrees && detected ? " ≠" : ""}
+    </span>
+  );
+}
+
 /** Flower & Hayes cognitive activity for this turn (paper Section 2.4). */
 export function CognitiveChip({ activity }: { activity: string }) {
   const meta = COGNITIVE_COPY[activity];
@@ -166,6 +188,10 @@ export function Conversation({
                   <p className="text-[13px] leading-relaxed text-white">{t.message_text}</p>
                 </div>
                 <div className="flex flex-wrap justify-end gap-1">
+                  <DeclaredChip
+                    declared={t.declared_activity ?? ""}
+                    detected={t.cognitive_activity}
+                  />
                   <CognitiveChip activity={t.cognitive_activity} />
                   <IntentChip intent={t.intent_type} />
                 </div>

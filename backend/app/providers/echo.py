@@ -48,6 +48,39 @@ _EMPTY_PROBES = [
     "What goes wrong in the first two minutes?",
 ]
 
+# Phase 2: when the system prompt carries a per-activity heuristic (its header
+# line is "WRITING ACTIVITY — X"), the offline provider mirrors the split so the
+# activity-conditioned behaviour is demonstrable with no model.
+_ACTIVITY_MOVES = {
+    "planning": (
+        "Before the prose, there's a decision here you haven't committed to.",
+        [
+            "What does this scene need to be true by the end?",
+            "What's the version of this you're avoiding?",
+            "Who wants something here, and what stands in the way?",
+            "What would you cut if you could only keep one thread?",
+        ],
+    ),
+    "translating": (
+        "The meaning is clear enough; the sentence is fighting you on how to carry it.",
+        [
+            "Which clause is the reader already ahead of?",
+            "What is this sentence doing that a shorter one couldn't?",
+            "Say it aloud — where does the rhythm stumble?",
+            "Which word here is being asked to do two jobs?",
+        ],
+    ),
+    "reviewing": (
+        "You have the text; the question is what it's quietly assuming.",
+        [
+            "What does this passage promise that it hasn't paid off?",
+            "Which assumption here would a sceptical reader not grant?",
+            "Is this the phrasing you want, or the first one that came?",
+            "What would you lose by cutting this paragraph entirely?",
+        ],
+    ),
+}
+
 
 class EchoProvider(LLMProvider):
     name = "echo"
@@ -81,6 +114,11 @@ class EchoProvider(LLMProvider):
 
         intercepted = "THIS TURN IS AN INTERCEPT" in system
 
+        activity = ""
+        ma = re.search(r"WRITING ACTIVITY [—-] (\w+)", system)
+        if ma:
+            activity = ma.group(1).strip().lower()
+
         draft = ""
         m = re.search(r"STORY DRAFT SO FAR:\n(.*?)(?:\n---|\Z)", user, re.S)
         if m:
@@ -93,6 +131,10 @@ class EchoProvider(LLMProvider):
                 "Before the prose, decide who this belongs to."
             )
             probes = list(_EMPTY_PROBES)
+        elif activity in _ACTIVITY_MOVES and not intercepted:
+            lead, bank = _ACTIVITY_MOVES[activity]
+            body = f"{lead} {rng.choice(_CRAFT)}"
+            probes = rng.sample(bank, 3)
         else:
             opening = rng.choice(_OPENINGS_INTERCEPT if intercepted else _OPENINGS_NORMAL)
             body = f"{opening} {rng.choice(_CRAFT)}"

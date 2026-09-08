@@ -129,10 +129,14 @@ async def role_arbiter(state: TurnState) -> TurnState:
     state.visit("role_arbiter")
     # Executive help-seeking is the thing the system intercepts under Tutor roles.
     state.intercepted = state.intent == "executive" and state.enforcement_level >= 1
+    # Phase 2: the prompt is conditioned on the writing activity. The writer's
+    # own declaration (Flower & Hayes' Monitor) wins; the classifier's guess is
+    # the fallback when they have not declared one.
+    state.effective_activity = state.declared_activity or state.cognitive
     state.system_prompt = prompts.build_system_prompt(
         state.mode, state.enforcement_level, state.intercepted,
         state.custom_system_prompt, state.intensity,
-        state.role, state.declared_activity,
+        state.role, state.effective_activity,
     )
     return state
 
@@ -160,6 +164,11 @@ def _build_user_prompt(state: TurnState) -> str:
             "---\nTHE STUDENT HAS SELECTED THIS PASSAGE AND IS ASKING ABOUT IT "
             f"SPECIFICALLY:\n<<<{state.selection.strip()[:1500]}>>>\n"
             "Anchor your reply to this passage, not the draft as a whole."
+        )
+    if state.declared_activity:
+        parts.append(
+            f"---\nThe writer says they are currently {state.declared_activity}. "
+            "Meet them in that activity."
         )
     parts.append(f"---\nSTUDENT SAYS: {state.message}")
     return "\n\n".join(parts)

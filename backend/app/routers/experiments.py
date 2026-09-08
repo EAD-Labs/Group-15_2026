@@ -17,7 +17,10 @@ from ..config import settings
 from ..db import get_db
 from ..metrics import agency_report
 from ..models import AIRole, ConversationTurn, ExperimentArm, StoryWorkspace, TelemetryEvent, User
-from ..prompts import BASE_SYSTEM_PROMPT, CONTROL_SYSTEM_PROMPT, SCAFFOLD_INTENSITY
+from ..prompts import (
+    BASE_SYSTEM_PROMPT, CONTROL_SYSTEM_PROMPT, SCAFFOLD_INTENSITY,
+    TUTOR_PLANNING_FRAGMENT, TUTOR_REVIEWING_FRAGMENT, TUTOR_TRANSLATING_FRAGMENT,
+)
 from ..schemas import ArmIn, ArmOut, AssignIn
 
 router = APIRouter(prefix="/api/research/experiments", tags=["experiments"])
@@ -68,16 +71,28 @@ def ensure_default_roles(db: Session) -> dict[str, AIRole]:
             archetype="tutor",
             behaviour="socratic_questioning",
             base_prompt=BASE_SYSTEM_PROMPT,
-            planning_prompt="",
-            translating_prompt="",
-            reviewing_prompt="",
+            planning_prompt=TUTOR_PLANNING_FRAGMENT,
+            translating_prompt=TUTOR_TRANSLATING_FRAGMENT,
+            reviewing_prompt=TUTOR_REVIEWING_FRAGMENT,
             may_produce_prose=False,
             enforcement_level=2,
         )
         db.add(tutor)
         roles["tutor"] = tutor
     else:
-        roles["tutor"] = existing["tutor"]
+        tutor = existing["tutor"]
+        # One-time reconciliation: a Phase 1 seed tutor (v1, stock base prompt,
+        # no activity fragments) predates Phase 2. Fill the fragments so
+        # activity-conditioned behaviour works out of the box. A researcher edit
+        # bumps the version, so this can never overwrite one.
+        if (tutor.version == 1
+                and tutor.base_prompt == BASE_SYSTEM_PROMPT
+                and not (tutor.planning_prompt or tutor.translating_prompt
+                         or tutor.reviewing_prompt)):
+            tutor.planning_prompt = TUTOR_PLANNING_FRAGMENT
+            tutor.translating_prompt = TUTOR_TRANSLATING_FRAGMENT
+            tutor.reviewing_prompt = TUTOR_REVIEWING_FRAGMENT
+        roles["tutor"] = tutor
 
     if "ghost" not in existing:
         ghost = AIRole(

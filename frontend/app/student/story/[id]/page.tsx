@@ -3,9 +3,10 @@
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { api, streamTurn } from "@/lib/api";
-import type { GraphNode, Intensity, StudentOptions, Turn, Workspace } from "@/lib/types";
+import type { DeclaredActivity, GraphNode, Intensity, StudentOptions, Turn, Workspace } from "@/lib/types";
 import type { NodeStatus } from "@/components/NodePipeline";
 import { AgencyMeter } from "@/components/AgencyMeter";
+import { ActivityControl } from "@/components/ActivityControl";
 import { Conversation } from "@/components/Chat";
 import { ExportDialog } from "@/components/ExportDialog";
 import { TemplateRail } from "@/components/TemplateRail";
@@ -37,6 +38,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   const [intensity, setIntensity] = useState<Intensity>("balanced");
   const [modelOverride, setModelOverride] = useState("");
   const [options, setOptions] = useState<StudentOptions | null>(null);
+  const [declaredActivity, setDeclaredActivity] = useState<DeclaredActivity>("");
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const keystrokes = useRef(0);
@@ -63,6 +65,29 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       if (lastAi?.suggestions?.length) setProbes(lastAi.suggestions);
     })().catch(console.error);
   }, [id, checked]);
+
+  // Restore the writer's last declared activity for this story (a convenience,
+  // not research state — the server records what was actually sent per turn).
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`story:${id}:activity`);
+      if (saved === "planning" || saved === "translating" || saved === "reviewing") {
+        setDeclaredActivity(saved);
+      }
+    } catch { /* private mode / storage disabled */ }
+  }, [id]);
+
+  const changeActivity = (next: DeclaredActivity) => {
+    setDeclaredActivity(next);
+    try {
+      if (next) localStorage.setItem(`story:${id}:activity`, next);
+      else localStorage.removeItem(`story:${id}:activity`);
+    } catch { /* ignore */ }
+    api.logEvent({
+      workspace_id: id, event_type: "activity_declared",
+      payload: { activity: next || "cleared" },
+    });
+  };
 
   // ---- autosave + keystroke telemetry ------------------------------------
   const onDraftChange = (value: string) => {
@@ -113,7 +138,8 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       // Optimistic user turn so the exchange feels immediate.
       const optimistic: Turn = {
         turn_id: `tmp-${Date.now()}`, speaker: "user", message_text: text,
-        intent_type: "", cognitive_activity: "", intercepted: false,
+        intent_type: "", cognitive_activity: "", declared_activity: declaredActivity,
+        intercepted: false,
         node_path: [], suggestions: [],
         provider: "", model_name: "", latency_ms: 0, timestamp: new Date().toISOString(),
       };
@@ -121,7 +147,10 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
 
       try {
         const result = await streamTurn(
-          id, { message: text, draft, selection, intensity, provider, model: modelOverride },
+          id, {
+            message: text, draft, selection, intensity, provider,
+            model: modelOverride, declared_activity: declaredActivity,
+          },
           (nodeId, status, extra) => {
             setNodeStatus((prev) => ({ ...prev, [nodeId]: status as NodeStatus }));
             if (typeof extra.intent === "string") setLiveIntent(extra.intent);
@@ -136,12 +165,14 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
               ? {
                   ...t, intent_type: result.intent,
                   cognitive_activity: result.cognitive,
+                  declared_activity: result.declared_activity ?? declaredActivity,
                   intercepted: result.intercepted,
                 }
               : t,
           ).concat({
             turn_id: result.turn_id, speaker: "ai", message_text: result.response_text,
             intent_type: result.intent, cognitive_activity: result.cognitive,
+            declared_activity: result.declared_activity ?? declaredActivity,
             intercepted: result.intercepted,
             node_path: result.node_path, suggestions: result.probes,
             provider: result.provider, model_name: result.model_name,
@@ -161,7 +192,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         setThinking(false);
       }
     },
-    [id, draft, graph, thinking, selection, intensity, provider, modelOverride],
+    [id, draft, graph, thinking, selection, intensity, provider, modelOverride, declaredActivity],
   );
 
   if (!checked || !user || !ws) {
@@ -337,6 +368,13 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
             onPick={(p) => send(p)}
             disabled={thinking}
             hasSelection={!!selection}
+          />
+
+          {/* the writer's Monitor (Flower & Hayes) - declare the current activity */}
+          <ActivityControl
+            value={declaredActivity}
+            onChange={changeActivity}
+            disabled={thinking}
           />
 
           {/* composer */}

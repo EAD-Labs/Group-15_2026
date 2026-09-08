@@ -169,6 +169,77 @@ sentences - more analysis, not more writing.""",
 DEFAULT_INTENSITY = "balanced"
 
 
+# --------------------------------------------------------------------------
+# Per-activity heuristics (Flower & Hayes writing activities).
+#
+# These are the Phase 2 deliverable: the Socratic Tutor behaves differently
+# during Planning, Translating and Reviewing. They are PLACEHOLDERS - Florence
+# said she will supply proper heuristics. Because roles live in the database
+# (Phase 1), swapping these in from the researcher portal needs no redeploy.
+#
+# The "WRITING ACTIVITY — X" header line is load-bearing: the offline echo
+# provider parses it to mirror the activity split when running without a model.
+#
+# Grounding (iteration-2 plan §7.2):
+#   Planning    - F&H generate / organize / goal-set; C&C: planning help is
+#                 deliberative, low retention is expected, not a failure.
+#   Translating - F&H: linearising meaning while constraints "interfere"; C&C:
+#                 highest retention and highest risk - name the jam, give a
+#                 procedure, never a phrasing.
+#   Reviewing   - S&L / Tekin's evaluator functions (weigh, don't correct);
+#                 C&C footnote 18: reviewing output is not for the draft.
+# --------------------------------------------------------------------------
+
+TUTOR_PLANNING_FRAGMENT = """WRITING ACTIVITY — PLANNING (placeholder heuristic, pending the client's).
+The writer is working out what happens, who someone is, or what the piece is
+for - before the prose exists. Widen and test the space, do not close it:
+  - surface the goal behind the passage and ask whether the draft serves it
+  - offer a constraint or a "what if" that opens an option they have not tried
+  - name the decision they are circling but have not made
+Do not converge on an answer for them. A planning turn that ends with more live
+options than it began with has done its job."""
+
+TUTOR_TRANSLATING_FRAGMENT = """WRITING ACTIVITY — TRANSLATING (placeholder heuristic, pending the client's).
+The writer knows roughly what they mean and is stuck getting it into a
+sentence. This is the highest-risk moment - it is where they most want you to
+just write it. Do not. Instead:
+  - name the specific constraint jamming the sentence (rhythm, point of view,
+    show vs tell, one word doing two jobs)
+  - give them a procedure to try, not a phrasing - e.g. "write the version that
+    over-explains, then cut every clause the reader already has"
+  - anchor to one concrete spot in their draft, never a generic rule
+No example sentences, no "something like". A method they can reuse, once."""
+
+TUTOR_REVIEWING_FRAGMENT = """WRITING ACTIVITY — REVIEWING (placeholder heuristic, pending the client's).
+The writer has text and is judging it. Push on coherence, assumptions and
+alternatives rather than fixing it for them:
+  - test one assumption the passage makes that a reader might not grant
+  - ask what the passage promises that it has not yet paid off
+  - offer an alternative reading of a line and ask which one they meant
+  - weigh, do not correct: "is this the formulation you want, or the first one
+    that came?"
+Anything you draft here is for thinking with, not for pasting into the story."""
+
+# Detected activity is stored as `translation`; the writer declares `translating`;
+# the role columns are `<x>_prompt`. This maps every spelling to its column.
+_ACTIVITY_COLUMN = {
+    "planning": "planning_prompt",
+    "translation": "translating_prompt",
+    "translating": "translating_prompt",
+    "reviewing": "reviewing_prompt",
+}
+
+
+def activity_fragment(role: dict | None, activity: str) -> str:
+    """The role's heuristic for this writing activity, or '' if none applies."""
+    if not role or not activity:
+        return ""
+    column = _ACTIVITY_COLUMN.get(activity.strip().lower())
+    if not column:
+        return ""  # "other", or an unrecognised label - no fragment
+    return (role.get(column) or "").strip()
+
+
 INTERCEPT_ADDENDUM = """
 
 IMPORTANT - THIS TURN IS AN INTERCEPT:
@@ -244,11 +315,11 @@ def build_system_prompt(
         base = role.get("base_prompt", BASE_SYSTEM_PROMPT).format(
             mode_label=m["label"], mode_lens=m["lens"]
         )
-        # Phase 2: append per-activity fragment (empty in Phase 1 seed data)
-        if activity and activity != "other":
-            frag = role.get(f"{activity}_prompt", "")
-            if frag.strip():
-                base += "\n\n" + frag
+        # Phase 2: append the role's per-activity heuristic. `activity` is the
+        # writer's declared activity if they set one, else the detected one.
+        frag = activity_fragment(role, activity)
+        if frag:
+            base += "\n\n" + frag
 
     if intercepted:
         base += INTERCEPT_ADDENDUM

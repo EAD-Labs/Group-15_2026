@@ -135,9 +135,17 @@ export default function DataPage() {
             </div>
             <div className="rounded-lg border border-[var(--color-margin-edge)] bg-white p-4">
               <h3 className="mb-3 text-[12px] font-medium text-[var(--color-ink)]">
-                Cognitive activity
+                Cognitive activity <span className="font-normal text-[var(--color-ink-faint)]">· detected</span>
               </h3>
               <CognitiveChart data={summary?.cognitive_distribution ?? {}} />
+              {summary && Object.keys(summary.declared_distribution ?? {}).length > 0 && (
+                <p className="mt-3 border-t border-[var(--color-margin-edge)] pt-2 font-mono text-[10px] text-[var(--color-ink-faint)]">
+                  writer-declared:{" "}
+                  {Object.entries(summary.declared_distribution)
+                    .map(([k, v]) => `${k} ${v}`)
+                    .join(" · ")}
+                </p>
+              )}
             </div>
           </div>
           {summary && Object.keys(summary.enforcement_actions).length > 0 && (

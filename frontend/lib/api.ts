@@ -142,6 +142,7 @@ export async function streamTurn(
     provider?: string;
     model?: string;
     intensity?: string;
+    declared_activity?: string;
   },
   onNode: (id: string, status: string, extra: Record<string, unknown>) => void,
 ): Promise<TurnResult> {

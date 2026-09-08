@@ -141,8 +141,13 @@ class ConversationTurn(Base):
     # executive_help | instrumental_help | brainstorming | reflection  (HLD 6.1 Module 2)
     intent_type: Mapped[str] = mapped_column(String, default="")
     # planning | translation | reviewing  (Flower & Hayes cognitive process
-    # model, as operationalised by Chakrabarty et al. C&C '24)
+    # model, as operationalised by Chakrabarty et al. C&C '24). Detected by the
+    # classifier.
     cognitive_activity: Mapped[str] = mapped_column(String, default="")
+    # planning | translating | reviewing  - the writer's own declaration
+    # (Flower & Hayes' Monitor). Empty when they did not declare one. Stored
+    # alongside the detected value so the two can be compared (Phase 2).
+    declared_activity: Mapped[str] = mapped_column(String, default="")
     intercepted: Mapped[bool] = mapped_column(Boolean, default=False)
     # Ordered list of graph nodes this turn actually traversed.
     node_path: Mapped[list] = mapped_column(JSON, default=list)
