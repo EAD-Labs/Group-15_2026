@@ -7,7 +7,10 @@ Client: Florence Lehnert & Marcus Specht, FernUniversität in Hagen
 A working prototype of the platform specified in the HLD: an educational
 writing environment where the AI **refuses to write the student's story** and
 returns Socratic questions instead, while logging every interaction for
-research.
+research. Iteration 2 (see below) turns the Socratic behaviour from
+hard-coded Python into a configurable, versioned **AI role**, and makes it
+respond differently depending on whether the writer is Planning, Translating
+or Reviewing.
 
 ---
 
@@ -107,18 +110,29 @@ Phase 3 storage path. Nothing changes but `DATABASE_URL`.
 5b. Open the **scaffold control** in the header: switch to *Light touch* and
    ask again — one probe instead of three, far terser. Switch the model to
    **Ollama (local)** and ask once more; it still refuses to write.
+5c. Above the editor, set a **goal** for the piece, then click a chip under
+   **what are you doing right now?** (Planning / Translating / Reviewing —
+   iteration 2's Monitor control) and ask the same question again. The reply
+   changes with the declared activity; nothing about the control implies an
+   order and clicking the active chip clears it.
 6. Switch portal (top right) → enter as a **researcher** →
    - flip the **model gateway** to another provider (live, no restart) — UC-03
-   - edit the **Socratic scaffold** prompt — UC-05
-   - set guardrail strictness to **Off** and re-ask "write the next paragraph"
-     in the workspace: it now complies. That is the experimental control
-     condition, and it proves the guardrail is doing the work.
+   - open **AI roles** (iteration 2): edit the Socratic Tutor's prompt and
+     save — it creates a new version rather than overwriting, and every
+     condition using that role picks it up immediately, no redeploy — UC-05
+   - point a condition's role picker at **Ghost baseline** and re-ask "write
+     the next paragraph" in the workspace: it now complies. That is the
+     experimental control condition, and it proves the guardrail is doing the
+     work.
    - **Study** shows two conditions. Hit **Randomise unassigned**, then read
-     *Results* — intercept rate and AI retention separate the arms. That table
-     is the "change X → students do Y" answer. Any condition can be edited
-     inline; there is no separate global config.
-   - **Data** has the writing-process timeline, both classification axes,
-     per-session agency/retention, and **export.json / export.csv** — UC-04
+     *Results* — intercept rate and AI retention separate the arms, with a
+     collapsible **AI retention by writing activity** breakdown underneath.
+     That table is the "change X → students do Y" answer. Any condition can be
+     edited inline; there is no separate global config.
+   - **Data** has the writing-process timeline (now with a second, hollow
+     track for declared activity alongside detected), both classification
+     axes including the new **Other** bucket, per-session agency/retention,
+     and **export.json / export.csv** — UC-04
 
 ---
 
@@ -140,17 +154,21 @@ Phase 3 storage path. Nothing changes but `DATABASE_URL`.
 | 6.1 M3 — hot-swappable prompts & params | `app/routers/experiments.py` (conditions) |
 | 9.1 — Researcher Control Panel + Analytics Hub | `app/researcher` (Study) and `app/researcher/data` (Data) |
 | 11.4 — Telemetry anonymisation | `_anonymise()` → `Participant_NN` on every export |
+| Iteration 2 — configurable AI roles | `AIRole` in `backend/app/models.py`; `/api/research/roles`; `components/RoleCard.tsx` |
+| Iteration 2 — activity-conditioned behaviour & Monitor | `build_system_prompt()` in `backend/app/prompts.py`; `components/ActivityControl.tsx` |
 
 ### The five graph nodes
 
 ```
-intent_classifier → guardrail_verifier → socratic_engine → response_formatter → agency_enforcer
-     Node 1               Node 2              Node 3            Node 4          Module 2(iii)
+intent_classifier → role_arbiter → response_engine → response_formatter → agency_enforcer
+     Node 1            Node 2           Node 3            Node 4          Module 2(iii)
 ```
 
-Each turn streams its progress over SSE, so the interface can show the filter
-firing *before* the answer lands. The path taken is stored on every turn and is
-visible in the UI under **trace**.
+Renamed in iteration 2 (`guardrail_verifier` → `role_arbiter`, `socratic_engine`
+→ `response_engine`) because a node named after one behaviour can't host four —
+see **Iteration 2** below. Each turn streams its progress over SSE, so the
+interface can show the filter firing *before* the answer lands. The path taken
+is stored on every turn and is visible in the UI under **trace**.
 
 ### The agency metric
 
@@ -214,6 +232,106 @@ from fewer than three exchanges are dimmed rather than presented as findings.
 
 Every workspace and every turn stores the condition it was produced under, so
 re-assigning a participant never rewrites the history of work they already did.
+
+---
+
+## Iteration 2 — configurable AI roles & activity-conditioned behaviour
+
+Driven by Florence's email after the first demo: keep the Socratic Tutor as the
+one implemented role, but stop hard-coding it, so researchers can configure or
+replace it later without touching the core application; and make the Tutor
+behave differently across Planning, Translating and Reviewing rather than
+detecting the activity and never acting on it. Full rationale, literature
+grounding and phase-by-phase plan: `docs/iteration-2-plan.md`.
+
+### AI roles are now data, not code
+
+`AIRole` (`backend/app/models.py`) replaces the old `guardrail_strictness`
+integer with a named, versioned record: archetype (`ghost | partner | tutor |
+custom`, Steinhoff & Lehnen's GPT model), behaviour, a base prompt, one prompt
+fragment per writing activity, `may_produce_prose`, and an `enforcement_level`.
+Two roles ship by default — **Socratic Tutor** and **Ghost baseline** — mapped
+onto the two existing conditions with byte-identical behaviour to before.
+
+**Edits are append-only.** `PATCH /api/research/roles/{id}` writes a *new
+version* and repoints every condition using the old one; the old row is never
+mutated, so a turn tagged with `role_version_id` can always be traced back to
+the exact prompt text that produced it. Manage roles from `/researcher` → **AI
+roles** (`components/RoleCard.tsx`); a condition now picks a role instead of a
+strictness level (`components/ConditionCard.tsx`).
+
+Role and enforcement are also split apart: a Ghost writing prose is the role
+working *correctly*, not a guardrail failure, so `agency_enforcer` now always
+runs and always logs — including for the Ghost, which previously produced no
+enforcement telemetry at all.
+
+### The Tutor behaves differently per writing activity
+
+`build_system_prompt()` appends the role's fragment for the *effective*
+activity — the writer's own declaration if they made one, else whatever the
+classifier detected. `AIRole.{planning,translating,reviewing}_prompt` hold
+placeholder heuristics (`backend/app/prompts.py` →
+`TUTOR_PLANNING_FRAGMENT` etc.) pending Florence's own; because roles are now
+data, swapping hers in needs no redeploy.
+
+**The writer's Monitor.** A new control in the workspace —
+*"what are you doing right now?"* (`components/ActivityControl.tsx`) — lets the
+writer declare Planning / Translating / Reviewing. Deliberately **not a
+stepper**: three equal toggles, no ordering, no completion state, and clicking
+the active one clears it, per Flower & Hayes' insistence that these activities
+are embedded and recursive rather than sequential. Declared and detected
+activity are both stored on every turn, both exported, and a mismatch between
+them is shown to the student as a small, non-nagging note — and to the
+researcher as a second track on the writing-process timeline
+(`components/CognitiveTimeline.tsx`).
+
+### Measurement fixes for a real user test
+
+- **Participant attribution** — `POST /api/research/events` used to file every
+  event under the first student in the table; it now resolves the actual caller
+  from `X-User-Id`, falling back to the workspace owner.
+- **A fourth activity label, `other`** — the classifier was forced into
+  `planning | translation | reviewing` and defaulted unmatched turns to
+  `planning`, inflating that bucket. It now has the fourth `other` bucket the
+  reference paper's own annotators used.
+- **Retention by activity** — `/api/research/experiments/compare` and
+  `/api/research/summary` report AI-retention broken down by writing activity
+  (`OutcomeTable.tsx`'s *AI retention by writing activity* panel), surfacing
+  where footnote 18 of the reference paper — Reviewing text isn't meant to
+  enter the draft — would change the headline number.
+- **Writer goals** — a short, optional per-story goal field
+  (`StoryWorkspace.goals`), shown above the editor, that the Tutor is told
+  about so it can hold the draft against the writer's own aim rather than only
+  generic craft advice.
+- Assorted housekeeping: the dead `/research` link removed from the student
+  header, stale routes/paths corrected in this README and `run.sh`, and the
+  Gemini model default aligned between `backend/app/config.py` and
+  `docker-compose.yml`.
+
+### Tests
+
+`backend/tests/` (new this iteration, 19 tests) — run with:
+
+```bash
+cd backend
+.venv/bin/python -m pytest -q
+```
+
+Covers, among other things: the Tutor's composed system prompt is
+byte-identical to the pre-role-system version; editing a role creates a new
+version and repoints conditions without touching the old row; the same
+question under declared Planning vs Reviewing produces materially different
+replies; and telemetry events are attributed to the right participant when two
+people write at once.
+
+### Status
+
+Both phases are committed on branch `iteration-2` (not yet merged to `main`).
+`AIRole`, activity-conditioned prompts and the Monitor control are Phase 1 +
+Phase 2 of the plan; the measurement fixes above are Phase 3, partially done —
+see `docs/iteration-2-plan.md` §9 for what's still open (chiefly: append-only
+edits for *conditions*, not just roles, and excluding Reviewing turns from the
+headline retention figure, both pending a decision from the client).
 
 ---
 
@@ -336,21 +454,25 @@ These were scoped decisions for an MVP, not oversights.
 ```
 backend/
   app/
-    graph/       state, the five nodes, the runner
+    graph/       state, the five nodes (role_arbiter, response_engine, ...), the runner
     providers/   gemini · ollama · offline scaffold
-    routers/     workspaces · chat (SSE) · research
-    prompts.py   Helsinki + Flower & Hayes prompts, templates, starters
+    routers/     workspaces · chat (SSE) · research (incl. /roles) · experiments
+    prompts.py   Helsinki + Flower & Hayes prompts, templates, starters,
+                 per-activity role fragments
     metrics.py   agency, Levenshtein, ROUGE-L retention
-    models.py    HLD §8.2 entities
+    models.py    HLD §8.2 entities + AIRole (iteration 2)
     deps.py      portal identity resolution
+  tests/         pytest, 19 tests (iteration 2)
 frontend/
   app/
     page.tsx              portal chooser
     student/              portfolio + story/[id] workspace
-    researcher/           study (conditions · participants · results) + data/
+    researcher/           study (conditions · roles · participants · results) + data/
   components/    AgencyMeter · NodePipeline · Chat · TemplateRail · ScaffoldControl
-                 ConditionCard · OutcomeTable
+                 ConditionCard · RoleCard · ActivityControl · OutcomeTable
                  IntentChart · CognitiveChart · CognitiveTimeline
                  PortalGuard · PortalHeader · ExportDialog
   lib/           api client (incl. SSE reader) · session · types
+docs/
+  iteration-2-plan.md   the client's iteration-2 ask, phased plan, open questions
 ```
