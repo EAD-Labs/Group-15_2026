@@ -4,9 +4,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { clearSession } from "@/lib/session";
 import type { SessionUser } from "@/lib/types";
+import { ThemeButton } from "./StudentTools";
 
 /** The student's top bar: the product, who is signed in, and a way out. */
-export function StudentHeader({ user }: { user: SessionUser }) {
+export function StudentHeader({ user, theme, onTheme }: {
+  user: SessionUser;
+  theme: "day" | "night";
+  onTheme: () => void;
+}) {
   const router = useRouter();
   return (
     <header className="mx-auto flex w-full max-w-3xl items-center gap-3 px-5 py-5">
@@ -20,7 +25,8 @@ export function StudentHeader({ user }: { user: SessionUser }) {
         </svg>
         <span className="font-serif text-[17px] font-medium tracking-tight">Story Studio</span>
       </Link>
-      <span className="ml-auto text-[13px] text-[var(--color-graphite)]">{user.display_name}</span>
+      <span className="ml-auto"><ThemeButton theme={theme} onToggle={onTheme} /></span>
+      <span className="text-[13px] text-[var(--color-graphite)]">{user.display_name}</span>
       <button
         onClick={() => { clearSession(); router.push("/"); }}
         className="rounded-md px-2 py-1 text-[13px] text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-desk-edge)]/60 hover:text-[var(--color-ink)]"

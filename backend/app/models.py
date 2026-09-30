@@ -162,6 +162,10 @@ class ConversationTurn(Base):
     # The Monitor's full reasoning: rule version, score per activity, and every
     # signal that contributed, so any decision can be reconstructed.
     activity_evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    # The passage the student highlighted when asking (user turns only). Lets
+    # the reply be anchored back to that passage in the student's view, and
+    # tells a researcher exactly what a selection-scoped ask was about.
+    selection: Mapped[str] = mapped_column(Text, default="")
     # Draft length when the student asked - the Monitor's "did the text grow or
     # shrink since last time" signal reads this off the previous turn.
     draft_words: Mapped[int] = mapped_column(Integer, default=0)

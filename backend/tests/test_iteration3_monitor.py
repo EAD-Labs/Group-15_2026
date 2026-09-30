@@ -216,3 +216,22 @@ def test_parse_tolerates_fences_and_rejects_junk():
         except ValueError:
             continue
         raise AssertionError(bad)
+
+
+def test_selection_is_stored_for_anchoring_and_archiving_keeps_the_data(client):
+    u = client.post("/api/session", json={"display_name": "Anchor", "role": "student"}).json()
+    h = {"X-User-Id": u["user_id"]}
+    wid = client.post("/api/workspaces", json={"title": "A", "initial_prompt": "x"},
+                      headers=h).json()["workspace_id"]
+    draft = "The letter arrived on a Tuesday. Idris turned it over twice."
+    _turn(client, wid, h, "does this line work?", draft, selection="Idris turned it over twice.")
+
+    user_turn = next(t for t in client.get(f"/api/workspaces/{wid}/turns").json()
+                     if t["speaker"] == "user")
+    assert user_turn["selection"] == "Idris turned it over twice."
+
+    # Archiving is a status change, never a delete: the research data stays.
+    client.patch(f"/api/workspaces/{wid}", json={"status": "archived"})
+    export = client.get(f"/api/research/export.json?workspace_id={wid}").json()
+    assert export["workspaces"][0]["status"] == "archived"
+    assert any(t["selection"] for t in export["conversation_turns"])

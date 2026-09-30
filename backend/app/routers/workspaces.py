@@ -148,6 +148,7 @@ def list_turns(workspace_id: str, db: Session = Depends(get_db)):
             "intent_type": t.intent_type, "cognitive_activity": t.cognitive_activity,
             "declared_activity": t.declared_activity,
             "decided_activity": t.decided_activity or "",
+            "selection": t.selection or "",
             "intercepted": t.intercepted,
             "node_path": t.node_path, "suggestions": t.suggestions,
             "provider": t.provider, "model_name": t.model_name,

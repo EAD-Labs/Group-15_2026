@@ -57,6 +57,7 @@
   --color-ink-blue:   #27477a;
   --color-ink-wash:   #e8eef7;
   --color-graphite:   #5b6473;
+  --color-on-ink:     #ffffff;  /* text on ink-blue buttons */
 
   --font-serif: var(--font-spectral), Iowan Old Style, Georgia, serif;
   --font-sans:  var(--font-inter), ui-sans-serif, system-ui, sans-serif;
@@ -160,3 +161,22 @@ html, body {
   border-radius: 3px;
 }
 .student ::selection { background: var(--color-ink-wash); color: var(--color-ink-blue); }
+
+/* Night desk. Same roles, re-inked: a dark desk, a dim sheet, pale ink.
+   Ink blue lightens for contrast on dark, so button text flips to dark. */
+.student[data-theme="night"] {
+  color-scheme: dark;
+  --color-desk:      #141922;
+  --color-desk-edge: #2b3341;
+  --color-sheet:     #1d232e;
+  --color-ink:       #e4e8ef;
+  --color-ink-faint: #6f7886;
+  --color-ink-blue:  #9ab6e6;
+  --color-ink-wash:  #263349;
+  --color-graphite:  #9aa3b1;
+  --color-on-ink:    #111620;
+  --color-accent:    #9ab6e6;
+}
+.student[data-theme="night"] .sheet {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04), 0 18px 40px -16px rgba(0, 0, 0, 0.6);
+}

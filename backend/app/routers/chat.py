@@ -205,6 +205,7 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
                 decided_activity=state.effective_activity,
                 activity_evidence=state.activity_evidence,
                 draft_words=state.draft_words,
+                selection=body.selection.strip()[:2000],
                 intercepted=state.intercepted, arm_id=state.arm_id,
                 role_version_id=state.role_version_id,
                 scaffold_intensity=state.intensity,

@@ -38,6 +38,7 @@ _ADDED_COLUMNS = [
     ("conversation_turns", "decided_activity", "VARCHAR DEFAULT ''"),
     ("conversation_turns", "activity_evidence", "JSON"),
     ("conversation_turns", "draft_words", "INTEGER DEFAULT 0"),
+    ("conversation_turns", "selection", "TEXT DEFAULT ''"),
 ]
 
 

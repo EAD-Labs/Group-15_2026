@@ -451,7 +451,8 @@ def export_json(workspace_id: str = "", db: Session = Depends(get_db)):
             {
                 "workspace_id": w.workspace_id,
                 "participant": codes.get(w.user_id, "Participant_XX"),
-                "title": w.title, "mode": w.mode, "initial_prompt": w.initial_prompt,
+                "title": w.title, "mode": w.mode, "status": w.status,
+                "initial_prompt": w.initial_prompt,
                 "goals": w.goals,
                 "notes": w.notes or "",
                 "final_text": w.current_content,
@@ -474,6 +475,7 @@ def export_json(workspace_id: str = "", db: Session = Depends(get_db)):
                 "decided_activity": t.decided_activity or "",
                 "activity_evidence": t.activity_evidence or {},
                 "draft_words": t.draft_words or 0,
+                "selection": t.selection or "",
                 "intercepted": t.intercepted, "node_path": t.node_path,
                 "suggestions": t.suggestions, "provider": t.provider,
                 "model_name": t.model_name, "latency_ms": t.latency_ms,

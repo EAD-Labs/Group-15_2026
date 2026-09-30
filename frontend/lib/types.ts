@@ -188,6 +188,8 @@ export type Turn = {
   cognitive_activity: CognitiveActivity;
   declared_activity?: DeclaredActivity;
   decided_activity?: DecidedActivity;
+  /** The passage the student highlighted when asking (user turns). */
+  selection?: string;
   intercepted: boolean;
   node_path: string[];
   suggestions: string[];
