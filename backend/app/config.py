@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     # Intent classification is a one-word task; a lite model halves the
     # round trip and keeps the turn inside the HLD 11.1 latency budget.
     gemini_classifier_model: str = "gemini-flash-lite-latest"
+    # The Activity Monitor judges the writing process from the whole context
+    # (draft, conversation, notes). A lite model keeps the extra call cheap;
+    # point this at a full flash model for sharper judgements at more latency.
+    gemini_monitor_model: str = "gemini-flash-lite-latest"
 
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:3b"

@@ -11,11 +11,18 @@ activity-conditioned behaviour (Flower & Hayes) and configurable AI roles
 (Steinhoff & Lehnen's Ghost/Partner/Tutor model) — as four phases, with the
 literature grounding, open questions, and a register of known defects.
 
-Two conventions from that plan that are easy to violate by accident:
+Conventions that are easy to violate by accident:
 
 - **Writing activities are never a sequence.** No stepper, no ordering, no
   "current phase" indicator, no completion state. Flower & Hayes are explicit
   that the processes are embedded and recursive.
+- **The student side is two panels: story and chat.** No controls over model,
+  scaffold or writing activity, no metrics shown. Research instrumentation stays
+  server-side and in the researcher portal (plan §8 D5).
+- **The system decides the writing activity** (`backend/app/graph/monitor.py`,
+  F&H's Monitor): an LLM judges from context, a rule is the fallback. Changing
+  the prompt means bumping `MONITOR_PROMPT_VERSION`; the weights,
+  `MONITOR_VERSION`.
 - **Roles and arms are append-only on edit.** Editing in place destroys the
   ability to trace a turn back to the prompt that produced it. See defect D1.
 

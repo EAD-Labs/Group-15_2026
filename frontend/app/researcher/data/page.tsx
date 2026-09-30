@@ -138,9 +138,23 @@ export default function DataPage() {
                 Cognitive activity <span className="font-normal text-[var(--color-ink-faint)]">· detected</span>
               </h3>
               <CognitiveChart data={summary?.cognitive_distribution ?? {}} />
-              {summary && Object.keys(summary.declared_distribution ?? {}).length > 0 && (
+              {summary && Object.keys(summary.decided_distribution ?? {}).length > 0 && (
                 <p className="mt-3 border-t border-[var(--color-margin-edge)] pt-2 font-mono text-[10px] text-[var(--color-ink-faint)]">
-                  writer-declared:{" "}
+                  monitor decided:{" "}
+                  {Object.entries(summary.decided_distribution)
+                    .map(([k, v]) => `${k} ${v}`)
+                    .join(" · ")}
+                  {" "}· {summary.monitor_switches} switch{summary.monitor_switches === 1 ? "" : "es"}
+                  {summary.monitor_methods?.llm ? ` · ${summary.monitor_methods.llm} by LLM` : ""}
+                  {summary.monitor_methods?.rules ? ` · ${summary.monitor_methods.rules} by rules` : ""}
+                  {summary.monitor_llm_rules_agreement != null
+                    ? ` · LLM agrees with rules ${Math.round(summary.monitor_llm_rules_agreement * 100)}%`
+                    : ""}
+                </p>
+              )}
+              {summary && Object.keys(summary.declared_distribution ?? {}).length > 0 && (
+                <p className="mt-2 font-mono text-[10px] text-[var(--color-ink-faint)]">
+                  writer-declared (iteration 2):{" "}
                   {Object.entries(summary.declared_distribution)
                     .map(([k, v]) => `${k} ${v}`)
                     .join(" · ")}

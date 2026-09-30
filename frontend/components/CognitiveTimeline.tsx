@@ -22,11 +22,12 @@ const ROWS = [
  * Row position carries the category; colour is reinforcement, never the sole
  * encoding. Intercepted turns get a ring so the guardrail is visible here too.
  *
- * Phase 2: a second, hollow track shows what the writer *declared* they were
- * doing (their Monitor), so a researcher can see where declared and detected
- * diverge.
+ * Iteration 3: a second, hollow track shows the activity the system's Monitor
+ * decided to meet each turn in (backend graph/monitor.py), so a researcher can
+ * see where the decision and the message-only classifier diverge. (Iteration
+ * 2's writer-declared activity is still in the export for older turns.)
  */
-const DECLARED_ROW: Record<string, number> = { planning: 0, translating: 1, reviewing: 2 };
+const DECIDED_ROW: Record<string, number> = { planning: 0, translation: 1, reviewing: 2 };
 
 export function CognitiveTimeline({ points }: { points: TimelinePoint[] }) {
   const [hover, setHover] = useState<number | null>(null);
@@ -53,16 +54,16 @@ export function CognitiveTimeline({ points }: { points: TimelinePoint[] }) {
     .map((p, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(p.cognitive)}`)
     .join(" ");
 
-  // Declared track: only the turns where the writer declared an activity.
-  const declaredRowY = (d: string) => {
-    const r = DECLARED_ROW[d];
+  // Decided track: only turns the Monitor made a decision on.
+  const decidedRowY = (d: string) => {
+    const r = DECIDED_ROW[d];
     return r === undefined ? H - 12 : r * ROW_H + ROW_H / 2;
   };
-  const declaredPts = points
+  const decidedPts = points
     .map((p, i) => ({ p, i }))
-    .filter(({ p }) => p.declared && DECLARED_ROW[p.declared] !== undefined);
-  const declaredPath = declaredPts
-    .map(({ p, i }, k) => `${k === 0 ? "M" : "L"} ${x(i)} ${declaredRowY(p.declared) - 9}`)
+    .filter(({ p }) => p.decided && DECIDED_ROW[p.decided] !== undefined);
+  const decidedPath = decidedPts
+    .map(({ p, i }, k) => `${k === 0 ? "M" : "L"} ${x(i)} ${decidedRowY(p.decided) - 9}`)
     .join(" ");
 
   const active = hover !== null ? points[hover] : null;
@@ -91,15 +92,15 @@ export function CognitiveTimeline({ points }: { points: TimelinePoint[] }) {
             ))}
             <path d={path} fill="none" stroke="var(--color-margin-edge)" strokeWidth={1.5} />
 
-            {/* declared track - hollow squares, dashed connector, sits above the row */}
-            {declaredPath && (
-              <path d={declaredPath} fill="none" stroke="var(--color-ink-faint)"
+            {/* decided track - hollow squares, dashed connector, sits above the row */}
+            {decidedPath && (
+              <path d={decidedPath} fill="none" stroke="var(--color-ink-faint)"
                     strokeWidth={1} strokeDasharray="2 3" />
             )}
-            {declaredPts.map(({ p, i }) => (
+            {decidedPts.map(({ p, i }) => (
               <rect
                 key={`d-${p.index}`}
-                x={x(i) - 3} y={declaredRowY(p.declared) - 12}
+                x={x(i) - 3} y={decidedRowY(p.decided) - 12}
                 width={6} height={6}
                 fill="none" stroke="var(--color-ink-soft)" strokeWidth={1.5}
               />
@@ -133,15 +134,23 @@ export function CognitiveTimeline({ points }: { points: TimelinePoint[] }) {
           <div className="animate-rise rounded-md border border-[var(--color-margin-edge)] bg-white px-2.5 py-1.5">
             <span className="font-mono text-[10px] text-[var(--color-ink-faint)]">
               #{active.index} · detected {active.cognitive} · {active.intent}
+              {active.decided
+                ? ` · monitor ${active.decided}${active.decided_method ? ` (${active.decided_method})` : ""}`
+                : ""}
               {active.declared ? ` · declared ${active.declared}` : ""}
               {active.intercepted ? " · intercepted" : ""}
             </span>
             <p className="mt-0.5 text-[11.5px] text-[var(--color-ink-soft)]">“{active.message}”</p>
+            {active.decided_reason && (
+              <p className="mt-0.5 text-[10.5px] italic text-[var(--color-ink-faint)]">
+                Monitor: {active.decided_reason}
+              </p>
+            )}
           </div>
         ) : (
           <p className="text-[10.5px] leading-snug text-[var(--color-ink-faint)]">
             Filled dot = detected activity, in order; ringed = intercepted.
-            Hollow square = what the writer declared they were doing. Hover to read it.
+            Hollow square = the activity the Monitor decided to meet it in. Hover to read it.
           </p>
         )}
       </div>

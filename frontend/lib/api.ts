@@ -77,7 +77,9 @@ export const api = {
 
   listWorkspaces: () => json<Workspace[]>("/api/workspaces"),
 
-  createWorkspace: (body: { title: string; initial_prompt: string; mode: string; goals?: string }) =>
+  createWorkspace: (body: {
+    title: string; initial_prompt: string; mode: string; goals?: string; notes?: string;
+  }) =>
     json<Workspace>("/api/workspaces", { method: "POST", body: JSON.stringify(body) }),
 
   getWorkspace: (id: string) => json<Workspace>(`/api/workspaces/${id}`),

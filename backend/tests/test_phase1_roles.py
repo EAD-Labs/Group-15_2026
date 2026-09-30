@@ -59,8 +59,8 @@ def test_seeded_arms_each_carry_a_role(client):
 def test_graph_trace_uses_the_new_node_names(client):
     ids = [n["id"] for n in client.get("/api/graph").json()["nodes"]]
     assert ids == [
-        "intent_classifier", "role_arbiter", "response_engine",
-        "response_formatter", "agency_enforcer",
+        "intent_classifier", "activity_monitor", "role_arbiter",
+        "response_engine", "response_formatter", "agency_enforcer",
     ]
 
 

@@ -89,50 +89,25 @@ Phase 3 storage path. Nothing changes but `DATABASE_URL`.
 
 ## A five-minute demo script
 
-1. **Dashboard** → *Start a new story* → pick **Educational Narrative**, click
-   the Martian starter, *Open workspace*.
-2. In the AI panel, type **"Write the next paragraph for me."**
-   Watch the graph nodes light up in sequence, then the amber **REDIRECTED**
-   card appear. The request is labelled `executive help`. The AI declines and
-   asks a question instead. *This is the whole thesis of the project in one
-   interaction.*
-3. Click one of the **questions to sit with**, or ask
-   **"How can I raise the stakes here?"** — labelled `instrumental help`, and
-   allowed straight through. The distinction is Helsinki help-seeking theory.
-   Note the second chip on every turn (`planning` / `translating` /
-   `reviewing`) — that is the Flower & Hayes axis described below.
-3b. **Select a sentence in the editor**, then ask about it. The request is
-   scoped to that passage. Open **ways to ask** for the templated prompts.
-4. Write a sentence or two in the left pane. Watch the **agency ring** in the
-   header stay at 100% — nothing you wrote came from the AI.
-5. Expand **▸ trace** under any AI reply to show the five graph nodes that
-   produced it.
-5b. Open the **scaffold control** in the header: switch to *Light touch* and
-   ask again — one probe instead of three, far terser. Switch the model to
-   **Ollama (local)** and ask once more; it still refuses to write.
-5c. Above the editor, set a **goal** for the piece, then click a chip under
-   **what are you doing right now?** (Planning / Translating / Reviewing —
-   iteration 2's Monitor control) and ask the same question again. The reply
-   changes with the declared activity; nothing about the control implies an
-   order and clicking the active chip clears it.
-6. Switch portal (top right) → enter as a **researcher** →
-   - flip the **model gateway** to another provider (live, no restart) — UC-03
-   - open **AI roles** (iteration 2): edit the Socratic Tutor's prompt and
-     save — it creates a new version rather than overwriting, and every
-     condition using that role picks it up immediately, no redeploy — UC-05
-   - point a condition's role picker at **Ghost baseline** and re-ask "write
-     the next paragraph" in the workspace: it now complies. That is the
-     experimental control condition, and it proves the guardrail is doing the
-     work.
-   - **Study** shows two conditions. Hit **Randomise unassigned**, then read
-     *Results* — intercept rate and AI retention separate the arms, with a
-     collapsible **AI retention by writing activity** breakdown underneath.
-     That table is the "change X → students do Y" answer. Any condition can be
-     edited inline; there is no separate global config.
-   - **Data** has the writing-process timeline (now with a second, hollow
-     track for declared activity alongside detected), both classification
-     axes including the new **Other** bucket, per-session agency/retention,
-     and **export.json / export.csv** — UC-04
+1. Enter as a **student** → *New story*. The form asks for three things only:
+   a title, an optional brief idea (anything — a plot sketch, a journal entry),
+   and the first line.
+2. The workspace is two panels: the story, and the chat. Nothing else.
+3. Ask **"What should happen next in the plot?"** The Monitor decides this is
+   *planning* (a planning-shaped message on a near-empty page) and the tutor
+   opens options rather than closing them.
+4. Write a paragraph, then send just **"thanks"**. The message itself says
+   nothing about activity, but the draft grew since the last ask — the Monitor
+   decides *translating*, and the tutor talks about the sentences.
+5. Ask **"Give me a critique of this passage."** → *reviewing*.
+6. Ask **"Write the next paragraph for me."** The tutor declines in one line and
+   gives a question instead — still the whole thesis of the project.
+7. Switch portal → **researcher** → **Data**. The writing-process timeline has
+   the classifier's detected activity (filled dots) and the Monitor's decision
+   (hollow squares) per turn; on the "thanks" turn they disagree, which is the
+   point. `export.json` carries every decision with its evidence.
+8. **Study** still holds conditions, AI roles (edit the Tutor's per-activity
+   prompts — append-only versions), participants and the outcome comparison.
 
 ---
 
@@ -155,14 +130,17 @@ Phase 3 storage path. Nothing changes but `DATABASE_URL`.
 | 9.1 — Researcher Control Panel + Analytics Hub | `app/researcher` (Study) and `app/researcher/data` (Data) |
 | 11.4 — Telemetry anonymisation | `_anonymise()` → `Participant_NN` on every export |
 | Iteration 2 — configurable AI roles | `AIRole` in `backend/app/models.py`; `/api/research/roles`; `components/RoleCard.tsx` |
-| Iteration 2 — activity-conditioned behaviour & Monitor | `build_system_prompt()` in `backend/app/prompts.py`; `components/ActivityControl.tsx` |
+| Iteration 2 — activity-conditioned behaviour | `build_system_prompt()` in `backend/app/prompts.py` |
+| Iteration 3 — system-decided activity (Monitor) | `backend/app/graph/monitor.py`; `activity_monitor()` in `backend/app/graph/nodes.py` |
 
-### The five graph nodes
+### The six graph nodes
 
 ```
-intent_classifier → role_arbiter → response_engine → response_formatter → agency_enforcer
-     Node 1            Node 2           Node 3            Node 4          Module 2(iii)
+intent_classifier → activity_monitor → role_arbiter → response_engine → response_formatter → agency_enforcer
+     Node 1          F&H's Monitor        Node 2           Node 3            Node 4          Module 2(iii)
 ```
+
+`activity_monitor` was added in iteration 3 — see **Iteration 3** below.
 
 Renamed in iteration 2 (`guardrail_verifier` → `role_arbiter`, `socratic_engine`
 → `response_engine`) because a node named after one behaviour can't host four —
@@ -182,22 +160,12 @@ trust it.
 
 ## Student controls
 
-The student can change **how much scaffolding they get**, and — where the
-condition allows — **which model answers**. What they cannot change is whether
-the guardrail applies. That distinction is deliberate: the refusal is the
-pedagogy, not a preference.
-
-| Level | What changes |
-|---|---|
-| **Light touch** | One sentence, one probe, under 35 words. For staying in flow. |
-| **Balanced** | An observation plus three angles. The default. |
-| **Deep dive** | A fuller diagnostic naming what the draft promises but has not paid off. Up to 140 words. |
-
-All three still refuse to write. Intensity is recorded on every turn, so a
-researcher can treat it either as a controlled variable (locked per condition)
-or as a covariate (student-chosen and logged).
-
-`app/prompts.py` → `SCAFFOLD_INTENSITY` · `components/ScaffoldControl.tsx`
+None. Since iteration 3 the student sees their story and the chat, and has no
+control over the model, the scaffold intensity or the writing activity. Scaffold
+intensity (`light | balanced | deep`, `app/prompts.py` → `SCAFFOLD_INTENSITY`)
+is set per condition by the researcher and recorded on every turn. The
+`allow_student_*` fields still exist on conditions for old data but nothing in
+the student UI reads them.
 
 ---
 
@@ -235,6 +203,75 @@ re-assigning a participant never rewrites the history of work they already did.
 
 ---
 
+## Iteration 3 — the system decides the writing activity; a minimal student UI
+
+Driven by the professor's feedback after iteration 2:
+
+1. **The writing activity is decided by an algorithm**, not chosen by the
+   student and not set by the researcher. Iteration 2's *"what are you doing
+   right now?"* toggle is gone.
+2. **The student side is two panels** — story and chat — with a dashboard that
+   lists stories and a three-field new-story form (title, optional brief idea,
+   first line). No model picker, scaffold control, agency meter, templates,
+   export, classification chips or graph trace. All of that is still computed
+   and stored; it is read on the researcher side.
+3. The Next.js dev badge ("N", bottom left) is hidden (`devIndicators: false`).
+
+### The Monitor (`backend/app/graph/monitor.py`)
+
+Flower & Hayes' fourth component is the **Monitor** — *"a writing strategist
+which determines when the writer moves from one process to another."* Iteration
+3 implements it as a new graph node that runs before the prompt is built.
+
+**An LLM decides.** The Monitor gives Gemini (`GEMINI_MONITOR_MODEL`, default
+the lite model) a brief on Flower & Hayes' three processes — explicitly *not*
+sequential — plus the whole situation: the student's message, any selected
+passage, the draft and how it changed since the last question, the recent
+exchange with the tutor, the student's notes, and its own previous judgement.
+It returns the process, a confidence and a one-line reason
+(`prompts.MONITOR_SYSTEM_PROMPT`, versioned as `MONITOR_PROMPT_VERSION`).
+Context is the point: *"thanks"* or *"ok yes"* mean nothing alone, but after
+the tutor asked about a specific phrase, "ok yes" is reviewing.
+
+The call starts in parallel with the intent classifier, so it adds no latency
+to the turn in practice.
+
+**A transparent rule is the fallback and the baseline.** When no LLM is
+reachable (offline scaffold, exhausted quota, unparseable reply) the rule below
+decides, so the demo never breaks. It is also computed on *every* turn and
+stored beside the LLM's call, so the researcher can see how often the LLM's
+contextual judgement departs from surface signals (`agrees_with_rules`, and an
+agreement rate on the Data page).
+
+| Signal | Points to | Weight | Grounding |
+|---|---|---|---|
+| Classifier's label for the message | that activity | 3.0 | C&C '24 labels activity from the instruction itself |
+| Draft under 30 words | planning | 1.5 | F&H: goals and ideas precede prose |
+| Draft grew ≥ 25 words since last ask | translating | 1.0 | text being produced = translating |
+| Draft shrank ≥ 5 words since last ask | reviewing | 1.0 | revision deletes |
+| Asking about a selected passage | reviewing / translating | 1.0 / 0.5 | C&C '24 §3.2 selection-scoped instructions act on existing text |
+| Brainstorm intent | planning | 0.75 | F&H's *generating* sub-process |
+| Previous turn's decision | same activity | 0.75 | inertia — an aside shouldn't reset the phase |
+
+Either way there is **no transition ordering** — any activity can follow any
+other (F&H: processes embed and recurse).
+
+Every turn stores `decided_activity` plus `activity_evidence` — `method`
+(`llm` | `rules`), and for the LLM its reason, confidence, model and prompt
+version; plus the rule's full verdict (score per activity, each contributing
+signal) — and `draft_words`. Changing the prompt means bumping
+`MONITOR_PROMPT_VERSION`; changing the weights, `MONITOR_VERSION`. Turns stay
+traceable to what decided them — the same append-only logic as roles (D1).
+Export schema is now **1.2**.
+
+The student's optional brief idea is stored as `StoryWorkspace.notes` and given
+to the tutor as context.
+
+Existing databases gain the new columns automatically at boot
+(`ensure_columns()` in `backend/app/db.py`, additive only).
+
+---
+
 ## Iteration 2 — configurable AI roles & activity-conditioned behaviour
 
 Driven by Florence's email after the first demo: keep the Socratic Tutor as the
@@ -268,11 +305,14 @@ enforcement telemetry at all.
 ### The Tutor behaves differently per writing activity
 
 `build_system_prompt()` appends the role's fragment for the *effective*
-activity — the writer's own declaration if they made one, else whatever the
-classifier detected. `AIRole.{planning,translating,reviewing}_prompt` hold
+activity — in iteration 2 the writer's own declaration if they made one, else
+whatever the classifier detected; since iteration 3, the Monitor's decision. `AIRole.{planning,translating,reviewing}_prompt` hold
 placeholder heuristics (`backend/app/prompts.py` →
 `TUTOR_PLANNING_FRAGMENT` etc.) pending Florence's own; because roles are now
 data, swapping hers in needs no redeploy.
+
+> **Superseded in iteration 3:** the toggle below was removed; the system's
+> Monitor now decides the activity. Kept here as the record of iteration 2.
 
 **The writer's Monitor.** A new control in the workspace —
 *"what are you doing right now?"* (`components/ActivityControl.tsx`) — lets the
@@ -310,7 +350,7 @@ researcher as a second track on the writing-process timeline
 
 ### Tests
 
-`backend/tests/` (new this iteration, 19 tests) — run with:
+`backend/tests/` (34 tests, incl. `test_iteration3_monitor.py`) — run with:
 
 ```bash
 cd backend
@@ -454,7 +494,7 @@ These were scoped decisions for an MVP, not oversights.
 ```
 backend/
   app/
-    graph/       state, the five nodes (role_arbiter, response_engine, ...), the runner
+    graph/       state, the six nodes, the runner, monitor.py (activity decision)
     providers/   gemini · ollama · offline scaffold
     routers/     workspaces · chat (SSE) · research (incl. /roles) · experiments
     prompts.py   Helsinki + Flower & Hayes prompts, templates, starters,
@@ -462,16 +502,15 @@ backend/
     metrics.py   agency, Levenshtein, ROUGE-L retention
     models.py    HLD §8.2 entities + AIRole (iteration 2)
     deps.py      portal identity resolution
-  tests/         pytest, 19 tests (iteration 2)
+  tests/         pytest, 34 tests
 frontend/
   app/
     page.tsx              portal chooser
     student/              portfolio + story/[id] workspace
     researcher/           study (conditions · roles · participants · results) + data/
-  components/    AgencyMeter · NodePipeline · Chat · TemplateRail · ScaffoldControl
-                 ConditionCard · RoleCard · ActivityControl · OutcomeTable
+  components/    AgencyMeter · Chat · ConditionCard · RoleCard · OutcomeTable
                  IntentChart · CognitiveChart · CognitiveTimeline
-                 PortalGuard · PortalHeader · ExportDialog
+                 PortalGuard · PortalHeader
   lib/           api client (incl. SSE reader) · session · types
 docs/
   iteration-2-plan.md   the client's iteration-2 ask, phased plan, open questions

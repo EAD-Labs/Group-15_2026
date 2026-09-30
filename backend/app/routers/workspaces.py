@@ -36,7 +36,8 @@ def _serialize(ws: StoryWorkspace, db: Session) -> WorkspaceOut:
         title=ws.title,
         initial_prompt=ws.initial_prompt,
         current_content=ws.current_content,
-        goals=ws.goals,
+        goals=ws.goals or "",
+        notes=ws.notes or "",
         mode=ws.mode,
         status=ws.status,
         created_at=ws.created_at.isoformat(),
@@ -87,6 +88,7 @@ def create_workspace(
         initial_prompt=body.initial_prompt,
         current_content=body.initial_prompt,
         goals=body.goals,
+        notes=body.notes,
         mode=body.mode,
         scaffold_intensity=body.scaffold_intensity,
         arm_id=user.arm_id,
@@ -95,6 +97,7 @@ def create_workspace(
     db.add(TelemetryEvent(
         workspace_id=ws.workspace_id, user_id=user.user_id, event_type="session_start",
         payload={"mode": body.mode, "seeded": bool(body.initial_prompt),
+                 "has_notes": bool(body.notes.strip()),
                  "arm_id": user.arm_id, "intensity": body.scaffold_intensity},
     ))
     db.commit()
@@ -144,6 +147,7 @@ def list_turns(workspace_id: str, db: Session = Depends(get_db)):
             "turn_id": t.turn_id, "speaker": t.speaker, "message_text": t.message_text,
             "intent_type": t.intent_type, "cognitive_activity": t.cognitive_activity,
             "declared_activity": t.declared_activity,
+            "decided_activity": t.decided_activity or "",
             "intercepted": t.intercepted,
             "node_path": t.node_path, "suggestions": t.suggestions,
             "provider": t.provider, "model_name": t.model_name,

@@ -69,6 +69,66 @@ Student message: {message}
 Two words:"""
 
 # --------------------------------------------------------------------------
+# The Activity Monitor (iteration 3)
+#
+# Flower & Hayes' Monitor - "a writing strategist which determines when the
+# writer moves from one process to another" - played by an LLM that reads the
+# whole situation, not just the message. Bump MONITOR_PROMPT_VERSION whenever
+# this text changes: every decision records the version that produced it.
+# --------------------------------------------------------------------------
+
+MONITOR_PROMPT_VERSION = "monitor-llm-v1"
+
+MONITOR_SYSTEM_PROMPT = """You are the Monitor in Flower and Hayes' cognitive \
+process model of writing: the strategist that judges which writing process a \
+writer is engaged in right now. You watch a university student writing a story \
+with an AI tutor beside them, and decide which of three processes the tutor \
+should meet their latest message in.
+
+PLANNING - generating ideas, organising them, setting goals. Deciding what
+  happens, who someone is, what the piece is for, where it goes next. Often,
+  but not only, when little text exists yet.
+TRANSLATING - turning ideas the writer already has into actual sentences:
+  wording, phrasing, imagery, dialogue, rhythm, getting a scene onto the page.
+  Often when the draft has just grown.
+REVIEWING - evaluating and revising text that already exists: is it working,
+  what is weak or inconsistent, what should be cut or changed. Often when the
+  writer asks about a passage, or has just deleted or reworked text.
+
+How to judge:
+  - These are NOT sequential stages. Writers jump between them in any order,
+    even inside one sentence. Never assume a phase because of where the story
+    "should" be.
+  - Read the message in context. "thanks" or "ok" says nothing by itself - use
+    what the writer has been doing (the draft change, the recent exchange, the
+    previous process).
+  - A request to write text for them is about the process they are stuck in
+    (usually translating a scene, or planning what happens) - judge that.
+  - Weigh everything: the message, the selected passage, how the draft changed,
+    the conversation so far, and the writer's own notes.
+
+Reply with ONLY a JSON object, no prose and no code fence:
+{"activity": "planning" | "translating" | "reviewing", "confidence": <0.0-1.0>, "reason": "<one short sentence citing the evidence>"}"""
+
+MONITOR_USER_PROMPT = """THE WRITER'S NOTES ABOUT THIS STORY:
+{notes}
+
+THE DRAFT ({draft_words} words; {draft_change}):
+{draft}
+
+RECENT EXCHANGE WITH THE TUTOR:
+{history}
+
+PROCESS YOU JUDGED LAST TURN: {previous}
+
+PASSAGE THE WRITER HAS SELECTED: {selection}
+
+THE WRITER'S NEW MESSAGE:
+{message}
+
+JSON:"""
+
+# --------------------------------------------------------------------------
 # The Socratic partner (Graph Node 3)
 # --------------------------------------------------------------------------
 

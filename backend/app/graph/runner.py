@@ -5,6 +5,7 @@ can report which path it actually took. Swapping this for a real LangGraph
 StateGraph is a mechanical change: same nodes, same state object.
 """
 from .nodes import (
+    activity_monitor,
     agency_enforcer,
     role_arbiter,
     intent_classifier,
@@ -15,7 +16,9 @@ from .state import TurnState
 
 GRAPH_SPEC = [
     {"id": "intent_classifier", "label": "Intent Classifier",
-     "desc": "Helsinki help-seeking category", "next": ["role_arbiter"]},
+     "desc": "Helsinki help-seeking category", "next": ["activity_monitor"]},
+    {"id": "activity_monitor", "label": "Activity Monitor",
+     "desc": "Decide planning / translating / reviewing", "next": ["role_arbiter"]},
     {"id": "role_arbiter", "label": "Role Arbiter",
      "desc": "Resolve role × activity × intent", "next": ["response_engine"]},
     {"id": "response_engine", "label": "Response Engine",
@@ -28,6 +31,7 @@ GRAPH_SPEC = [
 
 _PIPELINE = [
     intent_classifier,
+    activity_monitor,
     role_arbiter,
     response_engine,
     response_formatter,

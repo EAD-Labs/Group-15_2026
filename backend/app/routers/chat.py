@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from ..db import SessionLocal, get_db
 from ..graph import TurnState
 from ..graph.nodes import (
+    activity_monitor,
     agency_enforcer,
     role_arbiter,
     intent_classifier,
@@ -33,6 +34,7 @@ router = APIRouter(prefix="/api", tags=["chat"])
 
 _NODES = [
     ("intent_classifier", intent_classifier),
+    ("activity_monitor", activity_monitor),
     ("role_arbiter", role_arbiter),
     ("response_engine", response_engine),
     ("response_formatter", response_formatter),
@@ -87,14 +89,22 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
         ws.current_content = body.draft
         db.commit()
 
-    history = [
-        {"speaker": t.speaker, "text": t.message_text}
-        for t in db.scalars(
-            select(ConversationTurn)
-            .where(ConversationTurn.workspace_id == workspace_id)
-            .order_by(ConversationTurn.timestamp)
-        )
-    ]
+    past = list(db.scalars(
+        select(ConversationTurn)
+        .where(ConversationTurn.workspace_id == workspace_id)
+        .order_by(ConversationTurn.timestamp)
+    ))
+    history = [{"speaker": t.speaker, "text": t.message_text} for t in past]
+
+    # What the Monitor needs from the previous ask: its own decision, and how
+    # long the draft was then. Turns from before iteration 3 carry neither, so
+    # they read as a first turn rather than as a misleading zero-length draft.
+    last_ask = next((t for t in reversed(past) if t.speaker == "user"), None)
+    prev_activity = (last_ask.decided_activity or "") if last_ask else ""
+    prev_draft_words = (
+        last_ask.draft_words
+        if last_ask and last_ask.activity_evidence else None
+    )
 
     cfg = _active_config(db)
 
@@ -154,7 +164,11 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
         custom_system_prompt=system_prompt,
         intensity=intensity,
         goals=ws.goals or "",
+        notes=ws.notes or "",
         arm_id=arm.arm_id if arm else "",
+        draft_words=len(ws.current_content.split()),
+        prev_draft_words=prev_draft_words,
+        prev_activity=prev_activity,
     )
     user_id = ws.user_id
     mode = ws.mode
@@ -170,6 +184,8 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
             extra = {}
             if node_id == "intent_classifier":
                 extra = {"intent": state.intent, "cognitive": state.cognitive}
+            elif node_id == "activity_monitor":
+                extra = {"decided_activity": state.effective_activity}
             elif node_id == "role_arbiter":
                 extra = {
                     "intercepted": state.intercepted,
@@ -186,6 +202,9 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
                 workspace_id=workspace_id, speaker="user", message_text=body.message,
                 intent_type=state.intent, cognitive_activity=state.cognitive,
                 declared_activity=state.declared_activity,
+                decided_activity=state.effective_activity,
+                activity_evidence=state.activity_evidence,
+                draft_words=state.draft_words,
                 intercepted=state.intercepted, arm_id=state.arm_id,
                 role_version_id=state.role_version_id,
                 scaffold_intensity=state.intensity,
@@ -194,6 +213,7 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
                 workspace_id=workspace_id, speaker="ai", message_text=state.response_text,
                 intent_type=state.intent, cognitive_activity=state.cognitive,
                 declared_activity=state.declared_activity,
+                decided_activity=state.effective_activity,
                 intercepted=state.intercepted, node_path=state.node_path, suggestions=state.probes,
                 model_name=state.model_name, provider=state.provider_used,
                 arm_id=state.arm_id, role_version_id=state.role_version_id,
@@ -205,6 +225,7 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
                 workspace_id=workspace_id, user_id=user_id, event_type="prompt",
                 duration_ms=state.latency_ms,
                 payload={"intent": state.intent, "cognitive": state.cognitive,
+                         "decided_activity": state.effective_activity,
                          "intercepted": state.intercepted, "message": body.message,
                          "mode": mode, "scoped_to_selection": bool(body.selection.strip()),
                          "arm_id": state.arm_id, "intensity": state.intensity},
@@ -232,6 +253,8 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
             "cognitive": state.cognitive,
             "declared_activity": state.declared_activity,
             "effective_activity": state.effective_activity,
+            "decided_activity": state.effective_activity,
+            "activity_evidence": state.activity_evidence,
             "intensity": state.intensity,
             "intercepted": state.intercepted,
             "node_path": state.node_path,

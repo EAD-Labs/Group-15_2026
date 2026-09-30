@@ -94,6 +94,7 @@ class WorkspaceCreate(BaseModel):
     title: str = "Untitled Story"
     initial_prompt: str = ""
     goals: str = ""
+    notes: str = ""
     mode: str = "learning_scenario"
     scaffold_intensity: str = "balanced"
 
@@ -102,6 +103,7 @@ class WorkspaceUpdate(BaseModel):
     title: str | None = None
     current_content: str | None = None
     goals: str | None = None
+    notes: str | None = None
     mode: str | None = None
     status: str | None = None
     scaffold_intensity: str | None = None
@@ -113,6 +115,7 @@ class WorkspaceOut(BaseModel):
     initial_prompt: str
     current_content: str
     goals: str = ""
+    notes: str = ""
     mode: str
     status: str
     created_at: str
@@ -132,9 +135,8 @@ class TurnRequest(BaseModel):
     provider: str = ""
     model: str = ""
     intensity: str = ""
-    # Flower & Hayes "Monitor": the writer's own declaration of what they are
-    # doing right now. Stored alongside the detected activity; not yet used to
-    # condition behaviour (that is Phase 2).
+    # Iteration 2's student-declared activity. The UI no longer sends it and
+    # the Monitor no longer reads it; accepted and stored for old clients.
     declared_activity: str = ""
 
 

@@ -119,6 +119,9 @@ class StoryWorkspace(Base):
     # single out goal-setting as central to "being creative"; we stored a plot
     # seed but never the writer's intent (iteration-2 plan §7.2).
     goals: Mapped[str] = mapped_column(Text, default="")
+    # Iteration 3: the writer's optional brief idea for the story - anything
+    # from a plot sketch to a journal entry. Given to the Tutor as context.
+    notes: Mapped[str] = mapped_column(Text, default="")
     # learning_scenario | educational_narrative | design_fiction  (client brief, p3)
     mode: Mapped[str] = mapped_column(String, default="learning_scenario")
     status: Mapped[str] = mapped_column(String, default="active")
@@ -152,6 +155,16 @@ class ConversationTurn(Base):
     # (Flower & Hayes' Monitor). Empty when they did not declare one. Stored
     # alongside the detected value so the two can be compared (Phase 2).
     declared_activity: Mapped[str] = mapped_column(String, default="")
+    # planning | translation | reviewing | ""  - what the Monitor decided this
+    # turn should be met in (iteration 3, graph/monitor.py). This, not the
+    # student, is what conditions the prompt.
+    decided_activity: Mapped[str] = mapped_column(String, default="")
+    # The Monitor's full reasoning: rule version, score per activity, and every
+    # signal that contributed, so any decision can be reconstructed.
+    activity_evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Draft length when the student asked - the Monitor's "did the text grow or
+    # shrink since last time" signal reads this off the previous turn.
+    draft_words: Mapped[int] = mapped_column(Integer, default=0)
     intercepted: Mapped[bool] = mapped_column(Boolean, default=False)
     # Ordered list of graph nodes this turn actually traversed.
     node_path: Mapped[list] = mapped_column(JSON, default=list)

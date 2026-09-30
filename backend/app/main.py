@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .db import Base, engine
+from .db import Base, engine, ensure_columns
 from .routers import chat, experiments, research, session, workspaces
 
 app = FastAPI(
@@ -26,6 +26,7 @@ app.add_middleware(
 )
 
 Base.metadata.create_all(bind=engine)
+ensure_columns()
 
 app.include_router(session.router)
 app.include_router(workspaces.router)

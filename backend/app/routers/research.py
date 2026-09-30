@@ -285,6 +285,24 @@ def summary(workspace_id: str = "", db: Session = Depends(get_db)):
     intents = Counter(t.intent_type for t in user_turns if t.intent_type)
     cognitive = Counter(t.cognitive_activity for t in user_turns if t.cognitive_activity)
     declared = Counter(t.declared_activity for t in user_turns if t.declared_activity)
+    decided = Counter(t.decided_activity for t in user_turns if t.decided_activity)
+    switches = sum(
+        1 for t in user_turns if (t.activity_evidence or {}).get("switched")
+    )
+    methods = Counter(
+        (t.activity_evidence or {}).get("method", "rules")
+        for t in user_turns if t.decided_activity
+    )
+    # How often the LLM Monitor's contextual judgement departs from the
+    # surface-signal rule - the headline check on whether the LLM is adding
+    # understanding or just echoing keywords.
+    llm_turns = [t for t in user_turns
+                 if (t.activity_evidence or {}).get("method") == "llm"]
+    llm_agreement = (
+        round(sum(1 for t in llm_turns if t.activity_evidence.get("agrees_with_rules"))
+              / len(llm_turns), 3)
+        if llm_turns else None
+    )
     intercepts = sum(1 for t in user_turns if t.intercepted)
     latencies = sorted(t.latency_ms for t in ai_turns if t.latency_ms)
 
@@ -343,6 +361,10 @@ def summary(workspace_id: str = "", db: Session = Depends(get_db)):
         "intent_distribution": dict(intents),
         "cognitive_distribution": dict(cognitive),
         "declared_distribution": dict(declared),
+        "decided_distribution": dict(decided),
+        "monitor_switches": switches,
+        "monitor_methods": dict(methods),
+        "monitor_llm_rules_agreement": llm_agreement,
         "retention_by_activity": retention_by_activity,
         "mean_ai_retention": (
             round(sum(retention_values) / len(retention_values), 3)
@@ -380,6 +402,9 @@ def timeline(workspace_id: str = "", limit: int = 200, db: Session = Depends(get
                 "intent": t.intent_type,
                 "cognitive": t.cognitive_activity,
                 "declared": t.declared_activity,
+                "decided": t.decided_activity or "",
+                "decided_method": (t.activity_evidence or {}).get("method", ""),
+                "decided_reason": (t.activity_evidence or {}).get("reason", ""),
                 "intercepted": t.intercepted,
                 "message": t.message_text[:120],
                 "timestamp": t.timestamp.isoformat(),
@@ -418,7 +443,9 @@ def export_json(workspace_id: str = "", db: Session = Depends(get_db)):
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "study": "Human-AI Co-Creative Storytelling (ET617 Group 15)",
             "anonymised": True,
-            "schema_version": "1.1",
+            # 1.2: decided_activity / activity_evidence / draft_words on turns
+            # (the iteration-3 Monitor), notes on workspaces.
+            "schema_version": "1.2",
         },
         "workspaces": [
             {
@@ -426,6 +453,7 @@ def export_json(workspace_id: str = "", db: Session = Depends(get_db)):
                 "participant": codes.get(w.user_id, "Participant_XX"),
                 "title": w.title, "mode": w.mode, "initial_prompt": w.initial_prompt,
                 "goals": w.goals,
+                "notes": w.notes or "",
                 "final_text": w.current_content,
                 "agency": agency_report(
                     w.current_content,
@@ -443,6 +471,9 @@ def export_json(workspace_id: str = "", db: Session = Depends(get_db)):
                 "message_text": t.message_text, "intent_type": t.intent_type,
                 "cognitive_activity": t.cognitive_activity,
                 "declared_activity": t.declared_activity,
+                "decided_activity": t.decided_activity or "",
+                "activity_evidence": t.activity_evidence or {},
+                "draft_words": t.draft_words or 0,
                 "intercepted": t.intercepted, "node_path": t.node_path,
                 "suggestions": t.suggestions, "provider": t.provider,
                 "model_name": t.model_name, "latency_ms": t.latency_ms,
@@ -476,7 +507,7 @@ def export_csv(db: Session = Depends(get_db)):
     w = csv.writer(buf)
     w.writerow([
         "timestamp", "participant", "workspace_id", "event_type",
-        "intent", "cognitive_activity", "intercepted",
+        "intent", "cognitive_activity", "decided_activity", "intercepted",
         "delta_change", "duration_ms", "detail",
     ])
     for e in db.scalars(select(TelemetryEvent).order_by(TelemetryEvent.timestamp)):
@@ -485,7 +516,8 @@ def export_csv(db: Session = Depends(get_db)):
         w.writerow([
             e.timestamp.isoformat(), codes.get(e.user_id, "Participant_XX"),
             e.workspace_id, e.event_type, p.get("intent", ""),
-            p.get("cognitive", ""), p.get("intercepted", ""),
+            p.get("cognitive", ""), p.get("decided_activity", ""),
+            p.get("intercepted", ""),
             e.delta_change, e.duration_ms,
             str(detail)[:200],
         ])

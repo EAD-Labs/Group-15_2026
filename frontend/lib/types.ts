@@ -17,13 +17,40 @@ export type Template = {
 
 export type CognitiveActivity = "planning" | "translation" | "reviewing" | "other" | "";
 
-// What the writer declares (Flower & Hayes' Monitor). Spelled "translating" to
-// match the client and the UI copy; the detected axis stores "translation".
+// Iteration 2's writer-declared activity. No longer offered to students; old
+// turns still carry it. Spelled "translating"; the detected axis stores
+// "translation".
 export type DeclaredActivity = "planning" | "translating" | "reviewing" | "";
 
-export const DECLARED_ACTIVITIES: Exclude<DeclaredActivity, "">[] = [
-  "planning", "translating", "reviewing",
-];
+// Iteration 3: what the system's Monitor decided the turn should be met in.
+export type DecidedActivity = "planning" | "translation" | "reviewing" | "";
+
+type RulesEvidence = {
+  version: string;
+  decided: DecidedActivity;
+  scores: Record<string, number>;
+  signals: { signal: string; activity: string; weight: number; detail: string }[];
+  confidence: number;
+  previous: string;
+  switched: boolean;
+};
+
+// "llm": the LLM judged from full context (reason, model, prompt_version set).
+// "rules": the fallback rule decided (no LLM reachable). Either way `rules`
+// holds the rule's own verdict as a baseline.
+export type ActivityEvidence = {
+  method: "llm" | "rules";
+  decided: DecidedActivity;
+  confidence: number;
+  previous: string;
+  switched: boolean;
+  rules: RulesEvidence;
+  reason?: string;
+  model?: string;
+  prompt_version?: string;
+  agrees_with_rules?: boolean;
+  llm_error?: string;
+};
 
 export type TimelinePoint = {
   index: number;
@@ -31,6 +58,9 @@ export type TimelinePoint = {
   intent: Intent;
   cognitive: CognitiveActivity;
   declared: DeclaredActivity;
+  decided: DecidedActivity;
+  decided_method: string;
+  decided_reason: string;
   intercepted: boolean;
   message: string;
   timestamp: string;
@@ -111,6 +141,7 @@ export type ArmOutcome = {
   median_latency_ms: number | null;
   intent_distribution: Record<string, number>;
   cognitive_distribution: Record<string, number>;
+  decided_distribution: Record<string, number>;
   intensity_used: Record<string, number>;
 };
 
@@ -134,6 +165,7 @@ export type Workspace = {
   initial_prompt: string;
   current_content: string;
   goals: string;
+  notes: string;
   mode: string;
   status: string;
   created_at: string;
@@ -155,6 +187,7 @@ export type Turn = {
   intent_type: Intent;
   cognitive_activity: CognitiveActivity;
   declared_activity?: DeclaredActivity;
+  decided_activity?: DecidedActivity;
   intercepted: boolean;
   node_path: string[];
   suggestions: string[];
@@ -172,6 +205,8 @@ export type TurnResult = {
   cognitive: CognitiveActivity;
   declared_activity?: DeclaredActivity;
   effective_activity?: string;
+  decided_activity?: DecidedActivity;
+  activity_evidence?: ActivityEvidence;
   intensity: Intensity;
   intercepted: boolean;
   node_path: string[];
@@ -231,6 +266,10 @@ export type Summary = {
   intent_distribution: Record<string, number>;
   cognitive_distribution: Record<string, number>;
   declared_distribution: Record<string, number>;
+  decided_distribution: Record<string, number>;
+  monitor_switches: number;
+  monitor_methods: Record<string, number>;
+  monitor_llm_rules_agreement: number | null;
   retention_by_activity: Record<string, number | null>;
   mean_ai_retention: number;
   enforcement_actions: Record<string, number>;

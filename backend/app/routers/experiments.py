@@ -363,6 +363,9 @@ def compare(db: Session = Depends(get_db)):
             "cognitive_distribution": dict(
                 Counter(t.cognitive_activity for t in u_turns if t.cognitive_activity)
             ),
+            "decided_distribution": dict(
+                Counter(t.decided_activity for t in u_turns if t.decided_activity)
+            ),
             "intensity_used": dict(
                 Counter(t.scaffold_intensity for t in a_turns if t.scaffold_intensity)
             ),

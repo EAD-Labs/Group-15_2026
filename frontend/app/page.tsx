@@ -19,9 +19,9 @@ const PORTALS: {
     title: "Student",
     blurb: "Write, and be asked better questions about what you wrote.",
     bullets: [
-      "A split-screen workspace you fully control",
+      "Your story on one side, a writing partner on the other",
       "A partner that will not write your story",
-      "Export your story and the whole conversation",
+      "It adapts to whether you're planning, drafting or revising",
     ],
   },
   {

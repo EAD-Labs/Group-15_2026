@@ -557,6 +557,8 @@ Update this table as things get settled. `?` = unresolved.
 | **D1** | Roles and arms become append-only-on-edit | **decided** | See §9 D1. Non-negotiable once heuristics are editable. |
 | **D2** | Keep `guardrail_strictness` column through Phase 2 | **decided** | Rollback safety. Drop in Phase 3. |
 | **D3** | Do not build all roles this iteration | **decided** | Client said Tutor is sufficient, twice. |
+| **D4** | Writing activity is decided by the system, not the student or researcher (answers Q3) | **decided 2026-09-30** | Professor's feedback. The iteration-2 declare toggle is removed. `backend/app/graph/monitor.py` implements F&H's Monitor: an LLM judges the process from full context (message, draft and its change, conversation, notes); a versioned weighted-evidence rule is the fallback and is stored beside every LLM call as a baseline. See README → Iteration 3. |
+| **D5** | Student UI is story + chat only | **decided 2026-09-30** | No model, scaffold, activity, template, export or metric controls for students. All instrumentation stays server-side and in the researcher portal. |
 
 ---
 

@@ -122,20 +122,6 @@ export function ConditionCard({ arm, providers, roles, onChange, onDelete }: {
             />
           </Field>
 
-          <div className="flex flex-wrap items-center gap-3">
-            {([
-              ["allow_student_intensity", "student sets scaffold"],
-              ["allow_student_model", "student picks model"],
-            ] as const).map(([k, label]) => (
-              <label key={k} className="flex cursor-pointer items-center gap-1.5 text-[11.5px] text-[var(--color-ink-soft)]">
-                <input type="checkbox" checked={arm[k]}
-                       onChange={(e) => onChange({ [k]: e.target.checked } as Partial<Arm>)}
-                       className="accent-[var(--color-accent)]" />
-                {label}
-              </label>
-            ))}
-          </div>
-
           <div className="flex flex-wrap items-center gap-2 border-t border-[var(--color-margin-edge)] pt-2.5">
             {!arm.is_default && (
               <button onClick={() => onChange({ is_default: true })} className={ghostCls}>

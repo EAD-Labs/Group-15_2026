@@ -58,7 +58,9 @@ DRAFT = ("Captain Sarah stood on the red plain as the storm cleared and the "
          "engine telemetry stayed silent for one long moment.")
 
 
-def test_declared_activity_changes_the_reply_under_one_role(client):
+def test_a_declared_activity_no_longer_steers_the_reply(client):
+    # Iteration 3: the Monitor decides, not the student. An old client that
+    # still sends declared_activity gets it stored, but it changes nothing.
     u = client.post("/api/session",
                     json={"display_name": "MonitorTester", "role": "student"}).json()
     h = {"X-User-Id": u["user_id"]}
@@ -66,15 +68,12 @@ def test_declared_activity_changes_the_reply_under_one_role(client):
                      json={"title": "M", "mode": "educational_narrative"},
                      headers=h).json()["workspace_id"]
 
-    plan = _turn(client, ws, h, "How do I make this land?", declared="planning")
-    review = _turn(client, ws, h, "How do I make this land?", declared="reviewing")
-
-    assert plan["effective_activity"] == "planning"
-    assert review["effective_activity"] == "reviewing"
-    assert plan["response_text"] != review["response_text"]
+    d = _turn(client, ws, h, "Give me feedback on this paragraph.", declared="planning")
+    assert d["declared_activity"] == "planning"
+    assert d["effective_activity"] == d["decided_activity"] == "reviewing"
 
 
-def test_no_declaration_falls_back_to_the_detected_activity(client):
+def test_the_monitor_decision_drives_the_prompt(client):
     u = client.post("/api/session",
                     json={"display_name": "FallbackTester", "role": "student"}).json()
     h = {"X-User-Id": u["user_id"]}
@@ -84,7 +83,8 @@ def test_no_declaration_falls_back_to_the_detected_activity(client):
 
     d = _turn(client, ws, h, "Is my pacing off in this paragraph?")
     assert d["declared_activity"] == ""
-    assert d["effective_activity"] == d["cognitive"]  # detected drives it
+    assert d["effective_activity"] == d["activity_evidence"]["decided"]
+    assert "activity_monitor" in d["node_path"]
 
 
 def test_declared_and_detected_are_both_persisted_and_exported(client):
@@ -102,7 +102,7 @@ def test_declared_and_detected_are_both_persisted_and_exported(client):
     assert "cognitive_activity" in user_turn  # detected still there
 
     export = client.get("/api/research/export.json").json()
-    assert export["export_meta"]["schema_version"] == "1.1"
+    assert export["export_meta"]["schema_version"] == "1.2"
     assert all("declared_activity" in t for t in export["conversation_turns"])
 
     tl = client.get(f"/api/research/timeline?workspace_id={ws}").json()["points"]
