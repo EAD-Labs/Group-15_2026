@@ -6,70 +6,152 @@ Client: Florence Lehnert & Marcus Specht, FernUniversität in Hagen
 
 A working prototype of the platform specified in the HLD: an educational
 writing environment where the AI **refuses to write the student's story** and
-returns Socratic questions instead, while logging every interaction for
-research. Iteration 2 (see below) turns the Socratic behaviour from
-hard-coded Python into a configurable, versioned **AI role**, and makes it
-respond differently depending on whether the writer is Planning, Translating
-or Reviewing.
+asks Socratic questions instead, while logging every interaction for research.
+
+- **Iteration 2** made the Socratic behaviour a configurable, versioned **AI
+  role** that behaves differently when the writer is Planning, Translating or
+  Reviewing.
+- **Iteration 3** lets the system — not the student — decide which of those the
+  writer is in (an LLM-based Monitor), and reduces the student side to two
+  panels: the story and the chat.
+
+**New here? Read [`docs/how-it-works.md`](docs/how-it-works.md)** — the whole
+pipeline, guardrails and AI roles in plain language, with diagrams.
 
 ---
 
-## Two portals
+## Quick start
 
-The app opens on a role chooser (HLD §9.1's Login/Auth screen). It is
-prototype sign-in — a name, no password, stored in the browser.
+### 1. Install the prerequisites (once)
 
-| Portal | Route | What it holds |
+| Tool | Why | How to get it |
 |---|---|---|
-| **Student** | `/student` | Portfolio, and the split-screen co-creative workspace |
-| **Researcher** | `/researcher` | **Study** — conditions, participant assignment, outcome comparison |
-| | `/researcher/data` | **Data** — writing-process timeline, both classification axes, sessions, event stream, exports |
+| **Git** | to download the project | <https://git-scm.com/downloads> |
+| **Node.js 20 or newer** | runs the web interface | <https://nodejs.org> (the "LTS" download) |
+| **uv** | sets up Python and the backend's packages — it downloads the right Python version itself | macOS / Linux: `curl -LsSf https://astral.sh/uv/install.sh \| sh`<br>Windows: `powershell -c "irm https://astral.sh/uv/install.ps1 \| iex"` |
 
-Each student gets a `Participant_NN` code that replaces their name in every
-export. Students see only their own stories; the researcher sees the whole
-cohort. The portal guard is navigation, not security — the API does not
-enforce it, and a real deployment would put HLD §7.2's JWT/OAuth2 at that seam.
+Check they work: `git --version`, `node --version` (should print v20 or
+higher) and `uv --version`.
 
-## Run it
+### 2. Download the project
+
+```bash
+git clone https://github.com/EAD-Labs/Group-15_2026.git
+cd Group-15_2026
+```
+
+### 3. Add your Gemini API key
+
+The app works without a key (see *Running without a key* below), but the real
+AI tutor needs one. A free key takes about a minute.
+
+1. Go to **<https://aistudio.google.com/apikey>**, sign in with a Google
+   account, and click **Create API key**. Copy the key — it is a long string
+   that starts with `AIza`.
+2. In the project folder, make your own settings file by copying the template:
+
+   ```bash
+   cp backend/.env.example backend/.env
+   ```
+
+   (On Windows: `copy backend\.env.example backend\.env`)
+3. Open **`backend/.env`** in any text editor and find this line:
+
+   ```
+   GEMINI_API_KEY=
+   ```
+
+   Paste your key straight after the `=`, so it looks like:
+
+   ```
+   GEMINI_API_KEY=AIzaSyYourKeyGoesHere
+   ```
+
+   **No quotes, no spaces** around the `=`. Save the file. Leave the other
+   lines as they are.
+
+> `backend/.env` is ignored by Git, so your key is never uploaded. Never paste
+> your key into `backend/.env.example` — that file *is* shared.
+
+### 4. Start the app
+
+**macOS / Linux:**
 
 ```bash
 ./run.sh
 ```
 
-Then open **http://localhost:3000**.
+The first run takes a few minutes (it installs everything); later runs start in
+seconds. When you see **"Story Studio is running"**, open
+**<http://localhost:3000>**. Press **Ctrl + C** in the terminal to stop.
 
-That is the whole setup. The app boots and works with **no API key at all** —
-it falls back to a deterministic offline Socratic engine, so the demo can never
-fail in front of an audience.
+**Windows** (in two separate terminals, from the project folder):
 
-### Live models
+```powershell
+# terminal 1 - backend
+cd backend
+uv venv --python 3.13
+uv pip install fastapi "uvicorn[standard]" sqlalchemy pydantic pydantic-settings httpx python-multipart
+.venv\Scripts\uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
 
-`./run.sh` copies `backend/.env.example` to `backend/.env` on first run. Add
-your own `GEMINI_API_KEY` there (a free key comes from
-<https://aistudio.google.com/apikey>) to use live models; the app boots on
-`gemini-3.5-flash`. With no key it runs the offline scaffold — see above.
+```powershell
+# terminal 2 - frontend
+cd frontend
+npm install
+npm run dev
+```
 
-**Free-tier quotas are small and per-model** — `gemini-3.6-flash` allows 20
-requests *per day*. The provider therefore walks a fallback chain
-(`GEMINI_FALLBACK_MODELS`) when a model returns 429, and only drops to the
-offline scaffold when every model is exhausted. When that happens the AI panel
-says so rather than passing degraded output off as normal.
+Then open **<http://localhost:3000>**.
 
-Median turn latency on Gemini is ~5s, above the 4s target in HLD §11.1. Two
-LLM calls per turn cause it; the classifier already runs on a lite model to
-halve its share. The streaming node pipeline is what makes the wait legible.
+### 5. Check the AI is live
+
+Open **<http://localhost:8000/api/health>**. You should see
+`"provider_healthy": true` and `"Ready (gemini-3.5-flash)"`. If it says
+`"No API key set"`, see *Troubleshooting* below.
+
+### Changed the key later?
+
+The key is read when the backend starts. After editing `backend/.env`, **stop
+the app (Ctrl + C) and start it again.**
+
+---
+
+## Troubleshooting
+
+| What you see | Why | Fix |
+|---|---|---|
+| Replies look generic and repeat (e.g. *"Before the prose, there's a decision here you haven't committed to…"*) | The AI is running on the built-in offline tutor, not Gemini | 1) Check the key is in `backend/.env` exactly as in step 3 and restart. 2) Check each study condition uses Gemini: sign in as **Researcher → Study → edit** on each condition → **model: Google Gemini**. (Databases created by older versions could have saved the conditions as "Offline Scaffold".) |
+| `/api/health` says `"No API key set"` | The key isn't being read | The file must be named exactly `backend/.env` (not `.env.txt` — Windows Notepad adds `.txt`; choose "All files" when saving), the line must be `GEMINI_API_KEY=...` with no quotes, and the backend must be restarted |
+| Works for a while, then replies turn generic | The free Gemini tier has small **daily** limits per model | The app automatically tries other Gemini models first (`GEMINI_FALLBACK_MODELS`), then the offline tutor. Wait for the quota to reset (daily), or use a paid key |
+| `./run.sh: permission denied` | The script isn't marked executable | `chmod +x run.sh` then `./run.sh` again |
+| `uv: command not found` | uv isn't installed, or the terminal was opened before installing | Install it (step 1), then open a **new** terminal |
+| `Port 3000/8000 is already in use` | An earlier copy is still running | Close the other terminal, or on macOS/Linux: `lsof -ti :3000 -ti :8000 \| xargs kill` |
+
+### Running without a key
+
+Everything still works: each turn falls back to a deterministic offline
+Socratic tutor, and the writing-activity Monitor falls back to a transparent
+rule. Useful for a demo with no internet, but replies are much less specific.
 
 ### For fully offline local inference
 
 ```bash
 ollama serve
-ollama pull qwen2.5:7b
+ollama pull qwen2.5:3b
 ```
 
-Then switch to **Ollama (local)** in the researcher panel — live, no restart.
-That switch *is* use case UC-03.
+Then point a condition at **Ollama (local)** in the researcher portal — live, no
+restart. That switch *is* use case UC-03.
 
 ### Containerised (HLD §14 deployment criterion)
+
+For Docker, the key goes in a **`.env` file in the project root** (next to
+`docker-compose.yml`), not in `backend/.env`:
+
+```
+GEMINI_API_KEY=AIzaSyYourKeyGoesHere
+```
 
 ```bash
 docker compose up --build
@@ -80,12 +162,34 @@ Phase 3 storage path. Nothing changes but `DATABASE_URL`.
 
 ---
 
-> **Before demoing, check which condition you are in.** Randomised assignment
-> can put you in *Unguarded assistant*, where the guardrail is deliberately off
-> and the AI will write your story. The workspace shows an amber banner when
-> that is the case. To demo the intervention, open
-> `/researcher` → Participants and set yourself to *Socratic guardrail*.
-> Unassigned students already land in the guarded condition by default.
+## Two portals
+
+The app opens on a role chooser (HLD §9.1's Login/Auth screen). It is
+prototype sign-in — a name, no password, stored in the browser.
+
+| Portal | Route | What it holds |
+|---|---|---|
+| **Student** | `/student` | Their stories, and the two-panel workspace: story + writing partner |
+| **Researcher** | `/researcher` | **Study** — conditions, AI roles, participant assignment, outcome comparison |
+| | `/researcher/data` | **Data** — writing-process timeline (incl. the Monitor's decisions and reasons), classification charts, sessions, event stream, exports |
+
+Each student gets a `Participant_NN` code that replaces their name in every
+export. Students see only their own stories; the researcher sees the whole
+cohort. The portal guard is navigation, not security — the API does not
+enforce it, and a real deployment would put HLD §7.2's JWT/OAuth2 at that seam.
+
+> **Before a session, check which condition each student is in.** Randomised
+> assignment can put a student in *Unguarded assistant*, where the guardrail
+> is deliberately off and the AI will write their story. The student is **not**
+> told (that would bias the study) — check in **Researcher → Study →
+> Participants**. Unassigned students land in *Socratic guardrail* by default.
+
+**Performance.** A turn takes around 5 seconds on Gemini's free tier. Three
+LLM calls are involved — the help-seeking classifier and the Monitor run in
+parallel on a lite model, then the tutor replies — and the student sees plain
+status lines ("Reading your question…", "Thinking it through…") meanwhile.
+
+---
 
 ## A five-minute demo script
 
@@ -350,10 +454,12 @@ researcher as a second track on the writing-process timeline
 
 ### Tests
 
-`backend/tests/` (34 tests, incl. `test_iteration3_monitor.py`) — run with:
+`backend/tests/` (35 tests, incl. `test_iteration3_monitor.py`). Install pytest
+once, then run them:
 
 ```bash
 cd backend
+uv pip install pytest
 .venv/bin/python -m pytest -q
 ```
 
@@ -366,7 +472,7 @@ people write at once.
 
 ### Status
 
-Both phases are committed on branch `iteration-2` (not yet merged to `main`).
+Iteration 2 is merged into `main`; iteration 3 is on branch `iteration-3`.
 `AIRole`, activity-conditioned prompts and the Monitor control are Phase 1 +
 Phase 2 of the plan; the measurement fixes above are Phase 3, partially done —
 see `docs/iteration-2-plan.md` §9 for what's still open (chiefly: append-only
@@ -484,7 +590,7 @@ These were scoped decisions for an MVP, not oversights.
   scaffolding. Bigger models rarely trip it; small ones do, which is exactly
   why the enforcer is a separate node rather than a line in the prompt.
 - **`compress: false` in `next.config.ts` is deliberate.** Gzip buffers the SSE
-  stream until it closes, which kills the live node pipeline. Compression buys
+  stream until it closes, which kills the live status lines. Compression buys
   nothing on localhost.
 
 ---
@@ -502,7 +608,7 @@ backend/
     metrics.py   agency, Levenshtein, ROUGE-L retention
     models.py    HLD §8.2 entities + AIRole (iteration 2)
     deps.py      portal identity resolution
-  tests/         pytest, 34 tests
+  tests/         pytest, 35 tests
 frontend/
   app/
     page.tsx              portal chooser

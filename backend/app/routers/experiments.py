@@ -148,12 +148,17 @@ def ensure_default_arms(db: Session) -> None:
         return
     roles = ensure_default_roles(db)
 
+    # Seed with the *configured* provider, not the effective one. Seeding with
+    # effective_provider meant a first boot without a key saved both
+    # conditions as the offline scaffold for good - adding GEMINI_API_KEY
+    # later then changed nothing. With no key, a Gemini turn already falls
+    # back to the offline scaffold per turn, so nothing breaks either way.
     db.add_all([
         ExperimentArm(
             name="Socratic guardrail", is_control=False, is_default=True,
             description="The intervention: executive requests are intercepted and "
                         "converted into questions.",
-            provider=settings.effective_provider, guardrail_strictness=2,
+            provider=settings.default_provider, guardrail_strictness=2,
             role_id=roles["tutor"].role_id,
             scaffold_intensity="balanced", allow_student_intensity=True,
             allow_student_model=True, allowed_providers=["gemini", "ollama", "echo"],
@@ -162,7 +167,7 @@ def ensure_default_arms(db: Session) -> None:
             name="Unguarded assistant", is_control=True,
             description="Control: an ordinary AI writing assistant that complies "
                         "with requests to write.",
-            provider=settings.effective_provider, guardrail_strictness=0,
+            provider=settings.default_provider, guardrail_strictness=0,
             role_id=roles["ghost"].role_id,
             scaffold_intensity="balanced", allow_student_intensity=True,
             allow_student_model=True, allowed_providers=["gemini", "ollama", "echo"],
