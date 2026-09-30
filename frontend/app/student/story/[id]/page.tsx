@@ -3,93 +3,48 @@
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { api, streamTurn } from "@/lib/api";
-import type { DeclaredActivity, GraphNode, Intensity, StudentOptions, Turn, Workspace } from "@/lib/types";
-import type { NodeStatus } from "@/components/NodePipeline";
-import { AgencyMeter } from "@/components/AgencyMeter";
-import { ActivityControl } from "@/components/ActivityControl";
+import type { Turn, Workspace } from "@/lib/types";
 import { Conversation } from "@/components/Chat";
-import { ExportDialog } from "@/components/ExportDialog";
-import { TemplateRail } from "@/components/TemplateRail";
-import { ScaffoldControl } from "@/components/ScaffoldControl";
 import { usePortal } from "@/components/PortalGuard";
 
 const SAVE_DEBOUNCE = 900;
 
+/**
+ * The student workspace: the story, and the partner. Nothing else.
+ *
+ * Everything the study needs - help-seeking and activity classification, the
+ * Monitor's decision, agency, telemetry - is still computed per turn on the
+ * server and read in the researcher portal. None of it is shown here, and the
+ * student has no controls over the model, scaffold or writing activity.
+ */
 export default function WorkspacePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { user, checked } = usePortal("student");
 
   const [ws, setWs] = useState<Workspace | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
-  const [graph, setGraph] = useState<GraphNode[]>([]);
   const [draft, setDraft] = useState("");
-  const [goals, setGoals] = useState("");
   const [message, setMessage] = useState("");
-  const [probes, setProbes] = useState<string[]>([]);
   const [thinking, setThinking] = useState(false);
-  const [nodeStatus, setNodeStatus] = useState<Record<string, NodeStatus>>({});
-  const [liveIntent, setLiveIntent] = useState("");
-  const [liveCognitive, setLiveCognitive] = useState("");
-  const [liveIntercepted, setLiveIntercepted] = useState(false);
   const [saving, setSaving] = useState<"idle" | "saving" | "saved">("idle");
-  const [showExport, setShowExport] = useState(false);
-  const [provider, setProvider] = useState("");
   const [selection, setSelection] = useState("");
-  const [degraded, setDegraded] = useState("");
-  const [intensity, setIntensity] = useState<Intensity>("balanced");
-  const [modelOverride, setModelOverride] = useState("");
-  const [options, setOptions] = useState<StudentOptions | null>(null);
-  const [declaredActivity, setDeclaredActivity] = useState<DeclaredActivity>("");
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const keystrokes = useRef(0);
   const lastLen = useRef(0);
-  const composerRef = useRef<HTMLTextAreaElement>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
 
   // ---- load -------------------------------------------------------------
   useEffect(() => {
     if (!checked) return;
     (async () => {
-      const [w, t, g, cfg, o] = await Promise.all([
-        api.getWorkspace(id), api.turns(id), api.graph(), api.config(), api.options(),
-      ]);
-      setOptions(o);
+      const [w, t] = await Promise.all([api.getWorkspace(id), api.turns(id)]);
       setWs(w);
-      setIntensity(w.scaffold_intensity ?? "balanced");
-      setGoals(w.goals ?? "");
       setDraft(w.current_content);
       lastLen.current = w.current_content.length;
       setTurns(t);
-      setGraph(g);
-      setProvider(cfg.provider);
-      const lastAi = [...t].reverse().find((x) => x.speaker === "ai");
-      if (lastAi?.suggestions?.length) setProbes(lastAi.suggestions);
     })().catch(console.error);
   }, [id, checked]);
-
-  // Restore the writer's last declared activity for this story (a convenience,
-  // not research state — the server records what was actually sent per turn).
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(`story:${id}:activity`);
-      if (saved === "planning" || saved === "translating" || saved === "reviewing") {
-        setDeclaredActivity(saved);
-      }
-    } catch { /* private mode / storage disabled */ }
-  }, [id]);
-
-  const changeActivity = (next: DeclaredActivity) => {
-    setDeclaredActivity(next);
-    try {
-      if (next) localStorage.setItem(`story:${id}:activity`, next);
-      else localStorage.removeItem(`story:${id}:activity`);
-    } catch { /* ignore */ }
-    api.logEvent({
-      workspace_id: id, event_type: "activity_declared",
-      payload: { activity: next || "cleared" },
-    });
-  };
 
   // ---- autosave + keystroke telemetry ------------------------------------
   const onDraftChange = (value: string) => {
@@ -100,8 +55,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
     saveTimer.current = setTimeout(async () => {
       const delta = value.length - lastLen.current;
       lastLen.current = value.length;
-      const updated = await api.updateWorkspace(id, { current_content: value });
-      setWs(updated);
+      await api.updateWorkspace(id, { current_content: value });
       // Batched rather than per-keypress: HLD 11.1 requires zero input lag.
       api.logEvent({
         workspace_id: id,
@@ -115,9 +69,8 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
     }, SAVE_DEBOUNCE);
   };
 
-  /* Selection-scoped asking. Chakrabarty et al. (3.2) had writers demarcate a
-     span with < and > delimiters so an instruction applied locally rather than
-     to the whole draft; a real editor can just read the selection. */
+  /* Selection-scoped asking (C&C '24 §3.2). Also one of the Monitor's
+     signals: asking about a highlighted passage is working on existing text. */
   const captureSelection = () => {
     const el = editorRef.current;
     if (!el) return;
@@ -130,184 +83,80 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
     async (text: string) => {
       if (!text.trim() || thinking) return;
       setMessage("");
-      setProbes([]);
       setThinking(true);
-      setLiveIntent("");
-      setLiveCognitive("");
-      setLiveIntercepted(false);
-      setNodeStatus(Object.fromEntries(graph.map((n) => [n.id, "idle" as NodeStatus])));
 
-      // Optimistic user turn so the exchange feels immediate.
       const optimistic: Turn = {
         turn_id: `tmp-${Date.now()}`, speaker: "user", message_text: text,
-        intent_type: "", cognitive_activity: "", declared_activity: declaredActivity,
-        intercepted: false,
+        intent_type: "", cognitive_activity: "", intercepted: false,
         node_path: [], suggestions: [],
         provider: "", model_name: "", latency_ms: 0, timestamp: new Date().toISOString(),
       };
       setTurns((prev) => [...prev, optimistic]);
 
       try {
-        const result = await streamTurn(
-          id, {
-            message: text, draft, selection, intensity, provider,
-            model: modelOverride, declared_activity: declaredActivity,
-          },
-          (nodeId, status, extra) => {
-            setNodeStatus((prev) => ({ ...prev, [nodeId]: status as NodeStatus }));
-            if (typeof extra.intent === "string") setLiveIntent(extra.intent);
-            if (typeof extra.cognitive === "string") setLiveCognitive(extra.cognitive);
-            if (typeof extra.intercepted === "boolean") setLiveIntercepted(extra.intercepted);
-          },
-        );
-
+        const result = await streamTurn(id, { message: text, draft, selection }, () => {});
         setTurns((prev) =>
-          prev.map((t) =>
-            t.turn_id === optimistic.turn_id
-              ? {
-                  ...t, intent_type: result.intent,
-                  cognitive_activity: result.cognitive,
-                  declared_activity: result.declared_activity ?? declaredActivity,
-                  intercepted: result.intercepted,
-                }
-              : t,
-          ).concat({
+          prev.concat({
             turn_id: result.turn_id, speaker: "ai", message_text: result.response_text,
             intent_type: result.intent, cognitive_activity: result.cognitive,
-            declared_activity: result.declared_activity ?? declaredActivity,
             intercepted: result.intercepted,
             node_path: result.node_path, suggestions: result.probes,
             provider: result.provider, model_name: result.model_name,
             latency_ms: result.latency_ms, timestamp: new Date().toISOString(),
           }),
         );
-        setProbes(result.probes);
         setSelection("");
-        // Never let a silent downgrade pass as a normal answer.
-        setDegraded(result.provider.includes("fallback") ? result.provider : "");
-        if (result.provider) setProvider(result.provider);
-        setWs(await api.getWorkspace(id));
       } catch (err) {
         console.error(err);
         setTurns((prev) => prev.filter((t) => t.turn_id !== optimistic.turn_id));
+        setMessage(text);
       } finally {
         setThinking(false);
       }
     },
-    [id, draft, graph, thinking, selection, intensity, provider, modelOverride, declaredActivity],
+    [id, draft, thinking, selection],
   );
 
   if (!checked || !user || !ws) {
     return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="h-1 w-32 overflow-hidden rounded-full bg-[var(--color-margin-deep)]">
-          <div className="animate-sweep h-full w-1/3 rounded-full bg-[var(--color-accent)]" />
+      <div className="flex h-screen items-center justify-center bg-[var(--color-desk)]">
+        <div className="h-1 w-32 overflow-hidden rounded-full bg-[var(--color-desk-edge)]">
+          <div className="animate-sweep h-full w-1/3 rounded-full bg-[var(--color-ink-blue)]" />
         </div>
       </div>
     );
   }
 
-  const words = draft.trim() ? draft.trim().split(/\s+/).length : 0;
-  const exchanges = turns.filter((t) => t.speaker === "user").length;
-  const intercepts = turns.filter((t) => t.speaker === "user" && t.intercepted).length;
-
   return (
-    <div className="flex h-screen flex-col bg-[var(--color-margin)]">
-      {/* ---- top bar ------------------------------------------------------ */}
-      <header className="flex h-13 shrink-0 items-center gap-3 border-b border-[var(--color-margin-edge)] bg-white px-4 py-2.5">
-        <Link
-          href="/student"
-          className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-ink-faint)] transition-colors hover:bg-[var(--color-margin-deep)] hover:text-[var(--color-ink)]"
-          aria-label="Back to your stories"
-        >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-               strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M19 12H5M12 19l-7-7 7-7" />
-          </svg>
-        </Link>
-
-        <div className="min-w-0 flex-1">
-          <input
-            value={ws.title}
-            onChange={(e) => setWs({ ...ws, title: e.target.value })}
-            onBlur={(e) => api.updateWorkspace(id, { title: e.target.value })}
-            className="w-full max-w-md truncate bg-transparent text-[13.5px] font-medium text-[var(--color-ink)] outline-none focus:underline focus:decoration-[var(--color-accent-line)] focus:underline-offset-4"
-          />
+    <div className="student flex h-screen flex-col bg-[var(--color-desk)] md:flex-row">
+      {/* the story - a sheet on the desk */}
+      <section className="thin-scroll flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+        <div className="flex items-center gap-3 px-5 pt-4 md:px-8">
+          <Link
+            href="/student"
+            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[13px] text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-desk-edge)]/60 hover:text-[var(--color-ink)]"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+            Your stories
+          </Link>
+          <span className="ml-auto text-[12.5px] text-[var(--color-graphite)]" aria-live="polite">
+            {saving === "saving" ? "Saving…" : saving === "saved" ? "Saved" : ""}
+          </span>
         </div>
 
-        <span className="font-mono text-[10px] text-[var(--color-ink-faint)]">
-          {saving === "saving" ? "saving…" : saving === "saved" ? "saved" : ""}
-        </span>
-
-        <ScaffoldControl
-          intensity={intensity}
-          provider={provider}
-          disabled={thinking}
-          onIntensity={(v) => {
-            setIntensity(v);
-            api.updateWorkspace(id, { scaffold_intensity: v });
-            api.logEvent({
-              workspace_id: id, event_type: "intensity_change",
-              payload: { intensity: v },
-            });
-          }}
-          onProvider={(p, m) => {
-            setProvider(p);
-            setModelOverride(m);
-            api.logEvent({
-              workspace_id: id, event_type: "student_model_change",
-              payload: { provider: p, model: m },
-            });
-          }}
-        />
-
-        <AgencyMeter ratio={ws.agency_ratio} />
-
-        <div className="h-5 w-px bg-[var(--color-margin-edge)]" />
-
-        <button
-          onClick={() => {
-            setShowExport(true);
-            api.logEvent({ workspace_id: id, event_type: "export", payload: { surface: "workspace" } });
-          }}
-          className="rounded-md px-2.5 py-1.5 text-[12px] text-[var(--color-ink-soft)] transition-colors hover:bg-[var(--color-margin-deep)]"
-        >
-          Export
-        </button>
-      </header>
-
-      {/* ---- split screen ------------------------------------------------- */}
-      <div className="flex min-h-0 flex-1">
-        {/* the student's half - warm paper, wider, theirs */}
-        <section className="flex min-w-0 flex-[1.35] flex-col border-r border-[var(--color-margin-edge)] bg-[var(--color-paper)]">
-          <div className="flex items-center justify-between border-b border-[var(--color-paper-edge)] px-6 py-2">
-            <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--color-ink-faint)]">
-              story workspace
-            </span>
-            <span className="font-mono text-[10px] text-[var(--color-ink-faint)]">
-              {selection ? "passage selected" : "your control"}
-            </span>
-          </div>
-
-          {/* the writer's own goal for the piece (Flower & Hayes: goal-setting) */}
-          <div className="border-b border-[var(--color-paper-edge)] px-6 py-1.5">
+        <div className="flex flex-1 justify-center px-3 pb-6 pt-3 md:px-8 md:pb-10">
+          <article className="sheet flex w-full max-w-[46rem] flex-col px-7 pb-10 pt-10 sm:px-16 sm:pt-14">
             <input
-              value={goals}
-              onChange={(e) => setGoals(e.target.value)}
-              onBlur={(e) => {
-                if ((e.target.value ?? "") === (ws.goals ?? "")) return;
-                api.updateWorkspace(id, { goals: e.target.value }).then(setWs);
-                api.logEvent({
-                  workspace_id: id, event_type: "goal_set",
-                  payload: { length: e.target.value.trim().length },
-                });
-              }}
-              placeholder="Your goal for this piece (optional) — what are you trying to do with it?"
-              className="w-full max-w-[68ch] bg-transparent font-serif text-[12px] italic text-[var(--color-ink-soft)] outline-none placeholder:not-italic placeholder:text-[var(--color-ink-faint)] focus:text-[var(--color-ink)]"
+              value={ws.title}
+              onChange={(e) => setWs({ ...ws, title: e.target.value })}
+              onBlur={(e) => api.updateWorkspace(id, { title: e.target.value })}
+              aria-label="Story title"
+              className="w-full bg-transparent font-serif text-[30px] font-medium leading-tight tracking-tight text-[var(--color-ink)] outline-none sm:text-[36px]"
             />
-          </div>
-
-          <div className="thin-scroll flex-1 overflow-y-auto">
+            <div className="mb-6 mt-4 h-px w-12 bg-[var(--color-ink-blue)]/40" aria-hidden />
             <textarea
               ref={editorRef}
               value={draft}
@@ -316,155 +165,60 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
               onMouseUp={captureSelection}
               onKeyUp={captureSelection}
               spellCheck
-              placeholder="Start writing. The page is yours — the partner on the right will not fill it for you."
-              className="prose-editor mx-auto block h-full w-full max-w-[68ch] resize-none bg-transparent px-6 py-8"
+              placeholder="Keep going…"
+              aria-label="Your story"
+              className="prose-editor block min-h-[55vh] w-full flex-1 resize-none bg-transparent text-[18px] leading-[1.9]"
             />
-          </div>
-        </section>
+          </article>
+        </div>
+      </section>
 
-        {/* the AI's half - cooler, narrower, a margin note */}
-        <aside className="flex w-[400px] shrink-0 flex-col bg-[var(--color-margin)] xl:w-[440px]">
-          <div className="flex items-center justify-between border-b border-[var(--color-margin-edge)] px-4 py-2">
-            <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--color-ink-faint)]">
-              co-creative partner
-            </span>
-            <span
-              className="font-mono text-[10px]"
-              style={{ color: degraded ? "var(--color-flag)" : "var(--color-ink-faint)" }}
-              title={degraded ? "The configured model was unreachable or rate-limited." : undefined}
+      {/* the partner - notes in the margin */}
+      <aside className="flex h-[45vh] shrink-0 flex-col border-t border-[var(--color-desk-edge)] md:h-auto md:w-[400px] md:border-l md:border-t-0 xl:w-[440px]">
+        <Conversation turns={turns} thinking={thinking} />
+
+        <div className="shrink-0 px-4 pb-4 pt-2">
+          {selection && (
+            <div className="mb-2 flex items-center gap-2 rounded-md bg-[var(--color-ink-wash)] px-3 py-1.5 text-[12.5px] text-[var(--color-ink-blue)]">
+              <span className="min-w-0 flex-1 truncate font-serif italic">
+                Asking about “{selection}”
+              </span>
+              <button onClick={() => setSelection("")} aria-label="Clear selection"
+                      className="px-1 text-[15px] leading-none opacity-60 hover:opacity-100">
+                ×
+              </button>
+            </div>
+          )}
+          <div className="flex items-end gap-2 rounded-xl bg-[var(--color-sheet)] p-1.5 shadow-[0_0_0_1px_rgba(30,37,50,0.06),0_4px_14px_-6px_rgba(30,37,50,0.18)] focus-within:shadow-[0_0_0_2px_var(--color-ink-blue)]">
+            <textarea
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  send(message);
+                }
+              }}
+              rows={2}
+              disabled={thinking}
+              placeholder={selection ? "What do you want to know about it?" : "Ask your partner…"}
+              aria-label="Message your writing partner"
+              className="thin-scroll block flex-1 resize-none bg-transparent px-2.5 py-1.5 text-[14px] leading-relaxed text-[var(--color-ink)] placeholder:text-[var(--color-graphite)]/70 focus:outline-none disabled:opacity-50"
+            />
+            <button
+              onClick={() => send(message)}
+              disabled={thinking || !message.trim()}
+              aria-label="Send"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--color-ink-blue)] text-white transition-opacity hover:opacity-90 disabled:opacity-25"
             >
-              {provider}
-            </span>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M12 19V5M5 12l7-7 7 7" />
+              </svg>
+            </button>
           </div>
-
-          {options && !options.guardrail_active && (
-            <div className="border-b border-[var(--color-flag-line)] bg-[var(--color-flag-soft)] px-4 py-2">
-              <div className="flex items-start gap-2">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" className="mt-[2px] shrink-0"
-                     stroke="var(--color-flag)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
-                  <path d="M12 9v4M12 17h.01" />
-                </svg>
-                <p className="text-[11.5px] leading-snug text-[var(--color-flag)]">
-                  <strong className="font-semibold">Socratic guardrail is OFF</strong>
-                  {options.condition ? <> — you are in the “{options.condition.name}” condition.</> : "."}{" "}
-                  This partner will write your story if you ask it to, and none
-                  of it will count as yours.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {degraded && (
-            <div className="animate-rise border-b border-[var(--color-flag-line)] bg-[var(--color-flag-soft)] px-4 py-1.5">
-              <p className="text-[11px] leading-snug text-[var(--color-flag)]">
-                The configured model is unavailable — running on the offline
-                scaffold. Interaction design is unaffected; reply quality is lower.
-              </p>
-            </div>
-          )}
-
-          <Conversation
-            turns={turns}
-            probes={probes}
-            thinking={thinking}
-            graph={graph}
-            nodeStatus={nodeStatus}
-            liveIntent={liveIntent}
-            liveCognitive={liveCognitive}
-            liveIntercepted={liveIntercepted}
-            onProbe={(q) => send(q)}
-            emptyHint="Ask about craft, tension, character, or what your draft is currently doing."
-          />
-
-          {/* templated ways to ask - paper Table 2, inverted */}
-          <TemplateRail
-            onPick={(p) => send(p)}
-            disabled={thinking}
-            hasSelection={!!selection}
-          />
-
-          {/* the writer's Monitor (Flower & Hayes) - declare the current activity */}
-          <ActivityControl
-            value={declaredActivity}
-            onChange={changeActivity}
-            disabled={thinking}
-          />
-
-          {/* composer */}
-          <div className="shrink-0 border-t border-[var(--color-margin-edge)] bg-white/60 p-3">
-            {selection && (
-              <div className="animate-rise mb-2 flex items-start gap-2 rounded-md border border-[var(--color-accent-line)] bg-[var(--color-accent-soft)] px-2.5 py-1.5">
-                <span className="mt-[3px] font-mono text-[9px] uppercase tracking-wider text-[var(--color-accent)]">
-                  asking about
-                </span>
-                <span className="min-w-0 flex-1 truncate font-serif text-[11.5px] italic text-[var(--color-accent)]">
-                  “{selection}”
-                </span>
-                <button
-                  onClick={() => setSelection("")}
-                  className="font-mono text-[10px] text-[var(--color-accent)]/60 hover:text-[var(--color-accent)]"
-                >
-                  clear
-                </button>
-              </div>
-            )}
-            <div className="rounded-lg border border-[var(--color-margin-edge)] bg-white focus-within:border-[var(--color-accent-line)] focus-within:ring-2 focus-within:ring-[var(--color-accent-soft)]">
-              <textarea
-                ref={composerRef}
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    send(message);
-                  }
-                }}
-                rows={2}
-                disabled={thinking}
-                placeholder={selection ? "Ask about the selected passage…" : "Ask for a way in…"}
-                className="thin-scroll block w-full resize-none bg-transparent px-3 py-2.5 text-[13px] leading-relaxed text-[var(--color-ink)] placeholder:text-[var(--color-ink-faint)] focus:outline-none disabled:opacity-50"
-              />
-              <div className="flex items-center justify-between px-3 pb-2">
-                <span className="font-mono text-[10px] text-[var(--color-ink-faint)]">
-                  ⏎ send · ⇧⏎ newline
-                </span>
-                <button
-                  onClick={() => send(message)}
-                  disabled={thinking || !message.trim()}
-                  className="rounded-md bg-[var(--color-accent)] px-3 py-1 text-[11.5px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-25"
-                >
-                  {thinking ? "thinking…" : "Ask"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </aside>
-      </div>
-
-      {/* ---- status bar --------------------------------------------------- */}
-      <footer className="flex h-7 shrink-0 items-center gap-4 border-t border-[var(--color-margin-edge)] bg-white px-4 font-mono text-[10.5px] text-[var(--color-ink-faint)]">
-        <span>{words} words</span>
-        <span>·</span>
-        <span>{exchanges} exchanges</span>
-        <span>·</span>
-        <span>
-          {intercepts} intercepted
-        </span>
-        <span>·</span>
-        <span title="ROUGE-L recall of AI output inside your draft (paper Fig. 7)">
-          AI retention {Math.round((ws.ai_retention ?? 0) * 100)}%
-        </span>
-        <span className="ml-auto">select any passage to ask about it</span>
-      </footer>
-
-      {showExport && (
-        <ExportDialog
-          workspace={{ ...ws, current_content: draft }}
-          turns={turns}
-          onClose={() => setShowExport(false)}
-        />
-      )}
+        </div>
+      </aside>
     </div>
   );
 }
