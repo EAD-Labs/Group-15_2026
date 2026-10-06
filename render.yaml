@@ -1,0 +1,58 @@
+# Render Blueprint — one-click setup for both services.
+#
+# Deploys the existing backend/Dockerfile and frontend/Dockerfile as-is, no
+# code changes needed beyond this file. Deliberately does NOT provision a
+# database here: Render's own free Postgres auto-deletes after 90 days, which
+# is a silent data-loss trap for a semester-long research tool. Use a free,
+# non-expiring Postgres from https://neon.tech instead and paste its
+# connection string into DATABASE_URL below (see README "Hosting it").
+#
+# How to use: on render.com, New -> Blueprint -> point it at this repo. Render
+# reads this file and proposes both services below; it will ask you to fill in
+# any `sync: false` value by hand in the dashboard (these are secrets/URLs
+# that shouldn't live in the repo).
+#
+# If Render's dashboard rejects a field name here (their Blueprint schema
+# shifts between docs versions), the error message names the offending key —
+# the fallback is to skip the Blueprint and create the two services manually
+# from New -> Web Service, using the same Dockerfiles and env vars listed here.
+
+services:
+  - type: web
+    name: story-studio-backend
+    runtime: docker
+    rootDir: backend
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      # Paste a Neon (or any Postgres) connection string here, with the
+      # SQLAlchemy driver prefix: postgresql+psycopg://user:pass@host/db
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
+      - key: GEMINI_MONITOR_MODEL
+        value: gemini-flash-lite-latest
+      - key: DEFAULT_PROVIDER
+        value: gemini
+      # Set to the frontend service's public URL once it exists, e.g.
+      # https://story-studio-frontend.onrender.com (defence-in-depth only —
+      # the browser normally reaches this API through the frontend's own
+      # rewrite proxy, not directly).
+      - key: ALLOWED_ORIGINS
+        sync: false
+
+  - type: web
+    name: story-studio-frontend
+    runtime: docker
+    rootDir: frontend
+    plan: free
+    envVars:
+      # The backend service's public URL, e.g.
+      # https://story-studio-backend.onrender.com — confirm the exact URL
+      # Render assigned the backend service (it may differ from this name if
+      # it was already taken) and paste it here.
+      - key: BACKEND_URL
+        sync: false

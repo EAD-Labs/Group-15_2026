@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     default_provider: str = "gemini"
     database_url: str = "sqlite:///./storystudio.db"
 
+    # Comma-separated origins the browser is allowed to call this API from.
+    # The frontend normally reaches the backend through its own rewrite proxy
+    # (next.config.ts -> BACKEND_URL), so the browser's origin is itself, not
+    # the backend's - these defaults cover that local-dev case. Deployed
+    # somewhere real, set this to the frontend's public URL as a second layer
+    # of defence (e.g. for anyone hitting the backend's /docs directly).
+    allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     @property
     def effective_provider(self) -> str:
@@ -36,6 +43,10 @@ class Settings(BaseSettings):
         if self.default_provider == "gemini" and not self.gemini_api_key:
             return "echo"
         return self.default_provider
+
+    @property
+    def allowed_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
 
 
 settings = Settings()

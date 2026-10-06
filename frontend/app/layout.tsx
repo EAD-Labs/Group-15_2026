@@ -81,8 +81,13 @@ export default function RootLayout({
                  React reports as a hydration mismatch.
             This inline script is registered before anything else: it stops
             errors whose source is an extension, and strips the known injected
-            attributes as they appear. The app's own errors still surface. */}
-        <script dangerouslySetInnerHTML={{ __html: EXTENSION_GUARD }} />
+            attributes as they appear. The app's own errors still surface.
+
+            suppressHydrationWarning here covers a third interference pattern:
+            some extensions (observed: a popup blocker) rewrite this exact tag
+            itself - e.g. adding their own `src` - before React can hydrate it,
+            which React would otherwise report as a mismatch on this node. */}
+        <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: EXTENSION_GUARD }} />
       </head>
       <body className="antialiased" suppressHydrationWarning>{children}</body>
     </html>
