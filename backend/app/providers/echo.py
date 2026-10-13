@@ -22,24 +22,24 @@ _OPENINGS_NORMAL = [
     "Let's look at what the text is currently promising the reader.",
 ]
 
+# Observations, not directions. The earlier lines here nudged every story the
+# same way ("make it harder", "what does this need to teach the reader?") -
+# exactly the content-steering Florence flagged under H7.
 _CRAFT = [
-    "Right now the tension sits in the situation rather than in anyone's choice.",
-    "Your draft is telling us the stakes; it hasn't yet made us feel them arrive.",
-    "There's a gap between what your character knows and what the reader knows - that gap is usable.",
-    "The scene is holding its detail at arm's length. The specifics are where belief comes from.",
+    "Some of what you want the reader to understand is on the page, and some is still in your head.",
+    "The draft has set up a situation; what it means for the people in it is still open.",
+    "There's a gap between what your character knows and what the reader knows.",
+    "Parts of the scene are told in summary and parts are shown moment by moment.",
 ]
 
 _PROBE_BANK = [
     "What does your character want in this exact moment?",
-    "What would make this harder in an interesting way?",
     "Who else is affected by what just happened?",
-    "What is the worst thing that could interrupt now?",
     "What detail would only this character notice?",
-    "What is your character refusing to admit?",
     "Where would a reader stop believing this?",
-    "What happens if the obvious solution fails?",
-    "What does this scene need to teach the reader?",
     "Which sentence here are you least sure about?",
+    "What do you want the reader to feel at the end of this paragraph?",
+    "Which direction for the next scene feels most like your story?",
 ]
 
 _EMPTY_PROBES = [
@@ -91,7 +91,7 @@ class EchoProvider(LLMProvider):
     async def complete(self, system, user, temperature=0.8, max_tokens=600) -> LLMReply:
         # Classification requests get a keyword verdict so the Helsinki filter
         # still discriminates all four intents when running fully offline.
-        if "Student message:" in user and "Two words:" in user:
+        if "Student message:" in user and ("Three words:" in user or "Two words:" in user):
             return LLMReply(text=self._classify(user), model=self.model, provider=self.name)
 
         rng = random.Random(hash(user) & 0xFFFF)
@@ -100,17 +100,19 @@ class EchoProvider(LLMProvider):
         # assistant. Kept deliberately flat - the point of the control is that
         # the student stops thinking, not that the prose is good.
         if "Write whatever they ask for" in system:
+            # It used to return a fixed paragraph about a rover, whatever the
+            # student's story was - fabricated "AI prose" in the control arm's
+            # data whenever the real model failed (review hole 7).
             return LLMReply(
                 text=(
-                    "RESPONSE: She moved toward the rover without waiting for the "
-                    "telemetry to resolve. Whatever the storm had taken, the answer "
-                    "would be inside the housing, and there was no version of this "
-                    "where she waited for permission.\n"
-                    "PROBES: Want me to continue? | Should I lengthen this? | "
-                    "Want a different ending?"
+                    "RESPONSE: The writing assistant can't generate text while "
+                    "running offline.\nPROBES: "
                 ),
                 model=self.model, provider=self.name,
             )
+
+        if "Reply with your answer only" in system:
+            return LLMReply(text=self._v2(system, user, rng), model=self.model, provider=self.name)
 
         intercepted = "THIS TURN IS AN INTERCEPT" in system
 
@@ -144,9 +146,26 @@ class EchoProvider(LLMProvider):
         return LLMReply(text=text, model=self.model, provider=self.name)
 
     @staticmethod
+    def _v2(system: str, user: str, rng: random.Random) -> str:
+        """Response contract v2, offline: plain text, at most one question,
+        and honest about what a model-free scaffold cannot do."""
+        if "THIS REQUEST HAS A DIRECT ANSWER" in system:
+            return ("I can't look that up while running offline. A dictionary or "
+                    "grammar reference will give you the exact answer.")
+        if "THEY ASKED YOU TO WRITE OR REWRITE" in system:
+            return ("That wording should come from you. Say what the sentence has to "
+                    "do for the reader, then write the plainest version that does it. "
+                    "What does it have to carry?")
+        if "THE DIRECTION IS OPEN" in system:
+            return ("There are several ways this could go: what changes for the main "
+                    "character next, what someone else wants from them, or what the "
+                    "reader still doesn't know. Which of these matters most to you?")
+        return f"{rng.choice(_CRAFT)} {rng.choice(_PROBE_BANK)}"
+
+    @staticmethod
     def _classify(user: str) -> str:
-        """Return both axis labels, matching the live classifier's contract."""
-        m = re.search(r"Student message:\s*(.*?)\n\nTwo words:", user, re.S)
+        """Return all three axis labels, matching the live classifier's contract."""
+        m = re.search(r"Student message:\s*(.*?)\n\n(?:Three|Two) words:", user, re.S)
         msg = (m.group(1) if m else user).lower().strip()
 
         if re.search(r"\b(what if|what are some|other ways|alternatives?|directions|options|brainstorm|ideas)\b", msg):
@@ -165,7 +184,12 @@ class EchoProvider(LLMProvider):
         else:
             cognitive = "other"
 
-        return f"{help_type} {cognitive}"
+        if re.search(r"\bspell|\bgrammar|\bpunctuat|\bwhat does .{1,40} mean\b|\bmeaning of\b", msg):
+            form = "direct"
+        else:
+            form = "open"
+
+        return f"{help_type} {cognitive} {form}"
 
     async def health(self):
         return True, "Ready (deterministic offline mode)"

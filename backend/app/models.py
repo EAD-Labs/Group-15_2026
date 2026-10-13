@@ -49,6 +49,9 @@ class AIRole(Base):
     may_produce_prose: Mapped[bool] = mapped_column(Boolean, default=False)
     # 0..2, how strictly we police the role's contract
     enforcement_level: Mapped[int] = mapped_column(Integer, default=2)
+    # How replies are shaped (prompts.py): "v1" = questions and observations in
+    # a RESPONSE/PROBES envelope; "v2" = answer first, per-turn support moves.
+    response_contract: Mapped[str] = mapped_column(String, default="v1")
     # Versioning fields - edits create new rows, never mutate
     version: Mapped[int] = mapped_column(Integer, default=1)
     parent_role_id: Mapped[str] = mapped_column(String, default="")
@@ -85,10 +88,42 @@ class ExperimentArm(Base):
     # Providers a student may pick from when allow_student_model is on.
     allowed_providers: Mapped[list] = mapped_column(JSON, default=list)
 
+    # Whether the writing-partner panel starts open. The panel's visibility can
+    # itself steer how much students use the AI (Florence, H2/H8), so it is a
+    # condition setting - identical for everyone in the arm - not a preference.
+    chat_default_open: Mapped[bool] = mapped_column(Boolean, default=True)
+    # What happens when the condition's model cannot answer:
+    #   "fail"     - tell the student the partner is unavailable; nothing is
+    #                substituted, so every reply on record came from the
+    #                intended model (intervention fidelity, Florence's R1)
+    #   "fallback" - answer with the offline scaffold instead, flagged on the
+    #                turn as degraded
+    on_provider_failure: Mapped[str] = mapped_column(String, default="fail")
+    # Bumped on every edit; ArmVersion holds the full settings of each version
+    # and every turn records the version it ran under (defect D1).
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
     is_control: Mapped[bool] = mapped_column(Boolean, default=False)
     # Where unassigned participants land. Exactly one condition holds this.
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class ArmVersion(Base):
+    """The full settings of one version of a condition, never edited.
+
+    Conditions keep a stable arm_id (participants and workspaces point at it),
+    but an edit mid-study must not blur "before" into "after": each edit
+    appends a row here and turns record `arm_version`, so any turn can be
+    joined to the exact settings it ran under.
+    """
+    __tablename__ = "arm_versions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    arm_id: Mapped[str] = mapped_column(String, index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    settings: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
@@ -179,11 +214,43 @@ class ConversationTurn(Base):
     arm_id: Mapped[str] = mapped_column(String, default="", index=True)
     # Traces this turn to the exact role version that produced it (defect D1)
     role_version_id: Mapped[str] = mapped_column(String, default="")
+    # ...and to the exact version of the condition's settings (ArmVersion).
+    arm_version: Mapped[int] = mapped_column(Integer, default=0)
+    # Intervention fidelity (R1): for each LLM call in the turn, what was
+    # requested and what actually answered. See graph/fidelity.py.
+    fidelity: Mapped[dict] = mapped_column(JSON, default=dict)
+    # How the Tutor was told to meet this request (Phase C support moves):
+    # direct_answer | answer_then_reflect | decline_and_redirect | open_options
+    # | generate (Ghost). Empty on turns from before the move existed.
+    support_move: Mapped[str] = mapped_column(String, default="")
+    # Whether the request has one right answer (spelling, grammar, a word's
+    # meaning, how the tool works): direct | open.
+    request_form: Mapped[str] = mapped_column(String, default="")
     scaffold_intensity: Mapped[str] = mapped_column(String, default="")
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
     workspace: Mapped[StoryWorkspace] = relationship(back_populates="turns")
+
+
+class DraftSnapshot(Base):
+    """A saved earlier version of a story's text.
+
+    Gives the writer an obvious way back (heuristic H2, recoverability) and
+    gives the researcher the draft's history at the moments that matter: when
+    the writer asked the partner something, periodically while they wrote, and
+    just before any restore - so a restore is itself undoable.
+    """
+    __tablename__ = "draft_snapshots"
+
+    snapshot_id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(String, index=True)
+    content: Mapped[str] = mapped_column(Text, default="")
+    title: Mapped[str] = mapped_column(String, default="")
+    words: Mapped[int] = mapped_column(Integer, default=0)
+    # autosave | before_ask | before_restore
+    reason: Mapped[str] = mapped_column(String, default="autosave")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now, index=True)
 
 
 class TelemetryEvent(Base):

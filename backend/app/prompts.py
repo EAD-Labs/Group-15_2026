@@ -43,8 +43,11 @@ COGNITIVE_ACTIVITIES = {
     "reviewing": "evaluating and revising what is already written",
 }
 
-CLASSIFIER_PROMPT = """Label a student's message to a writing tutor on two \
-independent axes. Reply with exactly two lowercase words separated by a space \
+# Bump when CLASSIFIER_PROMPT changes; every turn records the version.
+CLASSIFIER_PROMPT_VERSION = "classifier-v2"
+
+CLASSIFIER_PROMPT = """Label a student's message to a writing tutor on three \
+independent axes. Reply with exactly three lowercase words separated by spaces \
 and nothing else.
 
 AXIS 1 - help-seeking type (Nelson-Le Gall / Helsinki):
@@ -64,9 +67,16 @@ translation   - wording, phrasing, imagery, dialogue, getting it onto the page
 reviewing     - judging or revising existing text, feedback, what is not working
 other         - none of the above: small talk, thanks, an aside, off-topic
 
+AXIS 3 - does the question have one right answer?
+direct        - yes: a spelling, a grammar or punctuation rule, what a word
+                means, a fact, how this writing tool works. "how do you spell
+                necessary?", "is it 'affect' or 'effect' here?", "what does
+                'liminal' mean?"
+open          - no: it needs judgement, ideas or the writer's own decision.
+
 Student message: {message}
 
-Two words:"""
+Three words:"""
 
 # --------------------------------------------------------------------------
 # The Activity Monitor (iteration 3)
@@ -177,6 +187,134 @@ PROBES: <question one> | <question two> | <question three>
 
 The three PROBES are short, concrete questions specific to their draft, each
 under 12 words. They appear in the UI as clickable chips."""
+
+# --------------------------------------------------------------------------
+# Response contract v2 (iteration 4, after Florence's heuristic evaluation).
+#
+# v1 above answers everything with questions and observations, in a
+# RESPONSE/PROBES envelope whose PROBES the student UI no longer shows. The
+# evaluation found that pattern (H5) ignores the actual request, (H6) turns a
+# spelling question into a reflective one, and (H7) nudges the story toward a
+# direction ("more conflict", "character growth") the writer never chose.
+#
+# v2 keeps the one rule - the AI never writes the student's story - and changes
+# how everything else is met: answer the request first, give direct answers
+# where one exists, never pick the story's direction, at most one question.
+# How a specific turn is met is a *support move* chosen by the role arbiter
+# (SUPPORT_MOVES below); roles opt in with response_contract = "v2", so v1
+# roles and the turns produced under them stay exactly as they were.
+# --------------------------------------------------------------------------
+
+RESPONSE_CONTRACT_V1 = "v1"
+RESPONSE_CONTRACT_V2 = "v2"
+
+BASE_SYSTEM_PROMPT_V2 = """You are a writing partner inside an educational \
+storytelling tool. Your collaborator is a university student writing a \
+{mode_label}. You are looking at it through the lens of {mode_lens}.
+
+THE ONE RULE YOU NEVER BREAK:
+The story is theirs, so you never write it: not a sentence of it, not a line
+of dialogue, not an example paragraph, not a rewritten version of their
+sentences, not "something like this...". Everything else that helps them write
+it themselves is yours to give.
+
+HOW TO REPLY:
+1. Answer what they actually asked, first, in plain words. If the question has
+   one right answer - a spelling, a grammar or punctuation rule, what a word
+   means, how this tool works - give that answer directly and briefly instead
+   of turning it into a question.
+2. Ground what you say in their draft: point to specific words, lines or
+   moments. If your reply would fit any story, it is the wrong reply.
+3. Then, only if it genuinely helps, ask ONE question. Never more than one, and
+   never one you have already asked in this conversation.
+
+THE STORY'S DIRECTION IS THEIRS:
+Do not decide what the story should become. Do not recommend more conflict, a
+twist, character growth, a lesson, a darker or happier turn, or any other
+development as if it were the right one. When the direction is open, set out
+two or three genuinely different possibilities without ranking them, or ask
+which direction matters to them.
+
+Professional writers judged AI collaborators useless for four reasons
+(Chakrabarty et al., C&C '24) - avoid all four: repeating yourself or their
+draft back at them; cliche and stock imagery; flatness, as if subtext were
+beyond them; and moralising toward a tidy, lesson-shaped ending.
+
+HOW YOU SOUND:
+Warm, plain and direct, like a sharp peer in a writing workshop. No flattery,
+no headers, no bullet lists, no markdown - plain text only. Under 90 words.
+
+Reply with your answer only: no labels such as "RESPONSE:", and no list of
+follow-up questions."""
+
+# One per support move. The role arbiter picks the move for each turn from the
+# help-seeking type, whether the request has a direct answer, and the writing
+# activity the Monitor decided; it is stored on every turn as `support_move`.
+SUPPORT_MOVES = {
+    "direct_answer": """
+
+THIS REQUEST HAS A DIRECT ANSWER.
+Give it in your first sentence - the spelling, the rule, the meaning, the fact
+- plainly, not as a question. If it concerns their own text (a spelling or
+grammar slip), say exactly where and what is wrong: correcting a word or a
+punctuation mark is fine, rewriting their sentence is not. Then stop, or add
+one short question only if there is a real follow-up. Under 50 words.""",
+    "decline_and_redirect": """
+
+THEY ASKED YOU TO WRITE OR REWRITE PART OF THE STORY.
+Say in one short clause that the wording should come from them - no lecture, no
+apology. Then give concrete help with the same need: what this sentence or
+passage has to achieve, the choices involved (point of view, tense, what to
+show and what to leave out, which detail leads), or two approaches they could
+try and compare. Make it specific to their draft. At most one question.""",
+    "open_options": """
+
+THE DIRECTION IS OPEN.
+Help them see possibilities rather than choosing one: offer two or three
+genuinely different directions, each in a few words, framed as areas to explore
+- never as story text and never ranked. Or ask which of the directions they
+already have in mind matters most to them. Do not recommend one.""",
+    "answer_then_reflect": """
+
+Answer their question directly first, grounded in their draft. Then, if it
+helps, one question.""",
+}
+
+TUTOR_PLANNING_FRAGMENT_V2 = """WRITING ACTIVITY — PLANNING (placeholder heuristic, pending the client's).
+The writer is working out what happens, who someone is, or what the piece is
+for. Help them see their own options and decisions: name the decision they seem
+to be circling, or set out distinct directions without picking one. Their own
+notes and goals, if given, are the yardstick - not your taste."""
+
+TUTOR_TRANSLATING_FRAGMENT_V2 = """WRITING ACTIVITY — TRANSLATING (placeholder heuristic, pending the client's).
+The writer roughly knows what they mean and is getting it into sentences. This
+is where they most want you to just write it - don't. Name what the sentence
+has to carry, the specific constraint making it hard (rhythm, point of view,
+show versus tell, one word doing two jobs), or a procedure they can try (write
+the over-explained version, then cut what the reader already knows). Discuss
+word choices by what they do; never supply the sentence."""
+
+TUTOR_REVIEWING_FRAGMENT_V2 = """WRITING ACTIVITY — REVIEWING (placeholder heuristic, pending the client's).
+The writer has text and is judging it. Give a clear, honest read of what the
+passage is doing: where it holds together and where it doesn't, what it
+assumes, what it promises and has not paid off. Point to specific lines. Weigh
+rather than correct - the fix is theirs."""
+
+# Scaffold intensity under v2: the same three levels, without v1's references
+# to probes, which v2 no longer produces.
+INTENSITY_ADDENDUM_V2 = {
+    "light": """
+
+KEEP IT SHORT: the writer is mid-flow. Under 35 words; a question only if it
+is essential.""",
+    "balanced": "",
+    "deep": """
+
+THE WRITER IS STUCK, so do more diagnostic work: say specifically what the
+draft is currently doing and which decision is holding it up. Up to 140 words.
+Still no prose, still no example sentences.""",
+}
+
 
 # --------------------------------------------------------------------------
 # Scaffold intensity.
@@ -323,6 +461,13 @@ FORMAT - reply with exactly this structure and nothing else:
 RESPONSE: <your reply, under 120 words>
 PROBES: <follow-up one> | <follow-up two> | <follow-up three>"""
 
+# Appended to a condition's custom prompt under a Ghost role, so the reply can
+# still be parsed.
+CONTROL_FORMAT_NOTE = """FORMAT - reply with exactly this structure and nothing else:
+
+RESPONSE: <your reply, under 120 words>
+PROBES: <follow-up one> | <follow-up two> | <follow-up three>"""
+
 STRICT_ADDENDUM = """
 
 MAXIMUM STRICTNESS IS ON: even illustrative fragments in quotation marks are
@@ -337,6 +482,7 @@ def build_system_prompt(
     intensity: str = DEFAULT_INTENSITY,
     role: dict | None = None,
     activity: str = "",
+    support_move: str = "",
 ) -> str:
     """Compose the system prompt from an AIRole record.
 
@@ -356,6 +502,17 @@ def build_system_prompt(
     m = MODES.get(mode, MODES["learning_scenario"])
     level = SCAFFOLD_INTENSITY.get(intensity, SCAFFOLD_INTENSITY[DEFAULT_INTENSITY])
 
+    # A Ghost role's contract comes first: a condition's custom prompt used to
+    # be checked before it and could silently turn the control arm into
+    # something else (iteration-4 review, hole 6).
+    if role and role.get("may_produce_prose", False) and role.get("enforcement_level", 2) == 0:
+        if custom.strip():
+            return custom + "\n\n" + CONTROL_FORMAT_NOTE
+        return CONTROL_SYSTEM_PROMPT.format(mode_label=m["label"])
+
+    if role and role.get("response_contract") == RESPONSE_CONTRACT_V2:
+        return _build_v2(m, custom, intensity, role, activity, support_move)
+
     # If a custom prompt is set (from arm.system_prompt or PromptConfig), use it.
     # Otherwise, read from the role record.
     if custom.strip():
@@ -367,10 +524,6 @@ def build_system_prompt(
             return CONTROL_SYSTEM_PROMPT.format(mode_label=m["label"])
         else:
             base = BASE_SYSTEM_PROMPT.format(mode_label=m["label"], mode_lens=m["lens"])
-    elif role.get("may_produce_prose", False) and role.get("enforcement_level", 2) == 0:
-        # Ghost baseline: plain assistant behaviour, guardrail genuinely off.
-        # This mirrors the old strictness == 0 → CONTROL_SYSTEM_PROMPT path.
-        return CONTROL_SYSTEM_PROMPT.format(mode_label=m["label"])
     else:
         # Phase 1: read base_prompt from the AIRole record.
         base = role.get("base_prompt", BASE_SYSTEM_PROMPT).format(
@@ -388,6 +541,24 @@ def build_system_prompt(
         base += STRICT_ADDENDUM
     # Intensity last so it can override the word budget set above.
     base += level["addendum"]
+    return base
+
+
+def _build_v2(m: dict, custom: str, intensity: str, role: dict,
+              activity: str, support_move: str) -> str:
+    """v2: base (role's, or the condition's custom one) + activity fragment +
+    the turn's support move + intensity. A custom prompt replaces only the
+    base; the activity conditioning and the move still apply."""
+    base_text = custom if custom.strip() else role.get("base_prompt") or BASE_SYSTEM_PROMPT_V2
+    try:
+        base = base_text.format(mode_label=m["label"], mode_lens=m["lens"])
+    except (KeyError, IndexError, ValueError):
+        base = base_text  # a researcher's prompt with stray braces - use as written
+    frag = activity_fragment(role, activity)
+    if frag:
+        base += "\n\n" + frag
+    base += SUPPORT_MOVES.get(support_move, "")
+    base += INTENSITY_ADDENDUM_V2.get(intensity, "")
     return base
 
 

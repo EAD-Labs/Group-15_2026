@@ -13,6 +13,11 @@ import type { Turn } from "@/lib/types";
  *
  * A reply to a question about a highlighted passage is anchored to it, the
  * way a margin comment is: its quote links back to the passage in the story.
+ *
+ * Replies are messages on their own surface, upright and unruled. The earlier
+ * italic text with a rule down its left edge read as a quotation (Florence,
+ * H3) - and a quotation is the one thing a partner's reply must never look
+ * like next to a story.
  */
 export function Conversation({
   turns,
@@ -40,12 +45,15 @@ export function Conversation({
   return (
     <div className="thin-scroll flex-1 space-y-5 overflow-y-auto px-5 pb-4 pt-6">
       {turns.length === 0 && !thinking && (
-        <div className="mt-8 border-l-2 border-[var(--color-ink-blue)]/30 pl-4">
-          <p className="font-serif text-[17px] italic leading-relaxed text-[var(--color-graphite)]">
-            I’m your writing partner. Ask me when you’re stuck, unsure, or want a
-            second opinion — I’ll help you think it through. The words stay yours.
+        /* Says what the partner is and how to reach it - nothing about agency
+           or authorship, which would prime the very perceptions a study
+           measures (Florence, free-exploration note 3). */
+        <div className="partner-msg mt-6 rounded-xl px-4 py-3">
+          <p className="text-[14px] leading-relaxed text-[var(--color-ink)]">
+            This is your writing partner, an AI you can message about your story
+            while you write. Ask it anything about your draft, whenever you like.
           </p>
-          <p className="mt-3 text-[12.5px] leading-relaxed text-[var(--color-graphite)]">
+          <p className="mt-2 text-[12.5px] leading-relaxed text-[var(--color-graphite)]">
             Tip: highlight a passage in your story to ask about just that part.
           </p>
         </div>
@@ -54,18 +62,23 @@ export function Conversation({
       {turns.map((t, i) => {
         if (t.speaker === "user") {
           return (
-            <div key={t.turn_id} className="flex justify-end">
+            <div key={t.turn_id} className="flex flex-col items-end">
               <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-[var(--color-ink-wash)] px-3.5 py-2 text-[14px] leading-relaxed text-[var(--color-ink-blue)]">
                 {t.message_text}
               </p>
+              {t.delivery === "failed" && (
+                <span className="mt-1 text-[11.5px] text-[var(--color-graphite)]">
+                  No reply - your partner was unavailable
+                </span>
+              )}
             </div>
           );
         }
         const prev = turns[i - 1];
         const asked = prev?.speaker === "user" ? prev.selection ?? "" : "";
         return (
-          /* the partner's reply: a pencilled margin note, not a bubble */
-          <div key={t.turn_id} className="animate-rise border-l-2 border-[var(--color-ink-blue)]/30 pl-4">
+          /* the partner's reply: its own message surface, left-aligned */
+          <div key={t.turn_id} className="animate-rise partner-msg mr-6 rounded-2xl rounded-bl-sm px-4 py-3">
             {asked && (
               <button
                 onClick={() => setMissing(onAnchor(asked) ? "" : t.turn_id)}
@@ -85,7 +98,7 @@ export function Conversation({
                 That passage has changed since you asked, so it can’t be shown.
               </p>
             )}
-            <p className="font-serif text-[16px] italic leading-[1.7] text-[var(--color-ink)]/85">
+            <p className="text-[14.5px] leading-[1.65] text-[var(--color-ink)]">
               {t.turn_id === freshId ? <Reveal text={t.message_text} /> : t.message_text}
             </p>
           </div>
@@ -93,7 +106,7 @@ export function Conversation({
       })}
 
       {thinking && (
-        <div className="flex items-center gap-2.5 border-l-2 border-[var(--color-ink-blue)]/30 py-1.5 pl-4"
+        <div className="partner-msg mr-6 flex items-center gap-2.5 rounded-2xl rounded-bl-sm px-4 py-2.5"
              role="status">
           <span className="flex gap-1" aria-hidden>
             {[0, 1, 2].map((i) => (
@@ -104,7 +117,7 @@ export function Conversation({
               />
             ))}
           </span>
-          <span className="font-serif text-[15px] italic text-[var(--color-graphite)]">{status}</span>
+          <span className="text-[13.5px] text-[var(--color-graphite)]">{status}</span>
         </div>
       )}
 

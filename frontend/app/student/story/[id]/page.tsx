@@ -2,15 +2,18 @@
 
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { api, streamTurn } from "@/lib/api";
+import { api, ApiError, report, streamTurn } from "@/lib/api";
 import type { Turn, Workspace } from "@/lib/types";
 import { TEXT_SIZES, useStudentPrefs, type StudentPrefs } from "@/lib/prefs";
 import { Conversation } from "@/components/Chat";
 import { StoryEditor, type Range, type StoryEditorHandle } from "@/components/StoryEditor";
 import { ThemeButton, ToolButton } from "@/components/StudentTools";
+import { VersionHistory } from "@/components/VersionHistory";
 import { usePortal } from "@/components/PortalGuard";
 
 const SAVE_DEBOUNCE = 900;
+// Back-off between attempts when a save fails; the last delay repeats.
+const RETRY_DELAYS = [2000, 5000, 10000];
 
 // What the student sees while the graph runs. Plain language, and never the
 // writing activity - naming a "current phase" is exactly what the design
@@ -31,7 +34,12 @@ const STATUS: Record<string, string> = {
  * Monitor's decision, agency, telemetry - is still computed per turn on the
  * server and read in the researcher portal. None of it is shown here, and the
  * student has no controls over the model, scaffold or writing activity. What
- * they do control is comfort: night mode, text size, focus mode.
+ * they do control is comfort (night mode, text size), getting back to an
+ * earlier version, and whether the partner's panel is open.
+ *
+ * Nothing on this page may throw into the Next.js dev overlay: a student who
+ * lands there cannot get back to their story (Florence's H2 finding). Every
+ * failure is shown in place, in plain words, and saving retries on its own.
  */
 export default function WorkspacePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -45,7 +53,12 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   const [thinking, setThinking] = useState(false);
   const [status, setStatus] = useState("");
   const [freshId, setFreshId] = useState("");
-  const [saving, setSaving] = useState<"idle" | "saving" | "saved">("idle");
+  const [saving, setSaving] = useState<"idle" | "saving" | "saved" | "retrying">("idle");
+  const [loadError, setLoadError] = useState("");
+  const [sendError, setSendError] = useState("");
+  const [titleNote, setTitleNote] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(true);
   const [selection, setSelection] = useState("");
   const [pending, setPending] = useState<Range | null>(null);
   const [anchor, setAnchor] = useState<Range | null>(null);
@@ -54,6 +67,13 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
   const keystrokes = useRef(0);
   const lastLen = useRef(0);
   const editorRef = useRef<StoryEditorHandle>(null);
+  const savedTitle = useRef("");
+  // Changes not yet confirmed by the server. Merged, so a retry always sends
+  // the latest text and title rather than replaying stale ones.
+  const unsaved = useRef<Partial<Workspace>>({});
+  const inFlight = useRef(false);
+  const attempt = useRef(0);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ---- load -------------------------------------------------------------
   useEffect(() => {
@@ -62,10 +82,84 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
       const [w, t] = await Promise.all([api.getWorkspace(id), api.turns(id)]);
       setWs(w);
       setDraft(w.current_content);
+      savedTitle.current = w.title;
       lastLen.current = w.current_content.length;
       setTurns(t);
-    })().catch(console.error);
+      setChatOpen(w.chat_default_open ?? true);
+    })().catch((err) => {
+      report(err);
+      setLoadError(
+        err instanceof ApiError && err.status === 404
+          ? "This story could not be found."
+          : "The story could not be loaded. Check that Story Studio is still running, then reload.",
+      );
+    });
   }, [id, checked]);
+
+  // Keep unsaved work from vanishing if the tab is closed mid-retry.
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => {
+      if (Object.keys(unsaved.current).length) e.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, []);
+
+  // ---- saving ---------------------------------------------------------------
+  /** Send everything unsaved; on failure, keep it and try again later. */
+  const flush = useCallback(async () => {
+    if (inFlight.current || !Object.keys(unsaved.current).length) return;
+    const batch = unsaved.current;
+    unsaved.current = {};
+    inFlight.current = true;
+    setSaving("saving");
+    try {
+      await api.updateWorkspace(id, batch);
+      if (batch.title !== undefined) savedTitle.current = batch.title;
+      attempt.current = 0;
+      inFlight.current = false;
+      if (Object.keys(unsaved.current).length) return void flush();
+      setSaving("saved");
+      setTimeout(() => setSaving((s) => (s === "saved" ? "idle" : s)), 1400);
+    } catch (err) {
+      report(err);
+      inFlight.current = false;
+      // Newer edits made meanwhile win over the batch that failed.
+      unsaved.current = { ...batch, ...unsaved.current };
+      setSaving("retrying");
+      const delay = RETRY_DELAYS[Math.min(attempt.current, RETRY_DELAYS.length - 1)];
+      attempt.current += 1;
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+      retryTimer.current = setTimeout(() => void flush(), delay);
+    }
+  }, [id]);
+
+  const persist = (patch: Partial<Workspace>) => {
+    unsaved.current = { ...unsaved.current, ...patch };
+    void flush();
+  };
+
+  const commitTitle = (value: string) => {
+    if (!ws) return;
+    const next = value.trim();
+    if (!next) {
+      // An empty title would leave a blank row in "Your stories". Stories
+      // saved blank before titles were checked get a placeholder title.
+      if (!savedTitle.current.trim()) {
+        setWs({ ...ws, title: "Untitled story" });
+        persist({ title: "Untitled story" });
+        return;
+      }
+      setWs({ ...ws, title: savedTitle.current });
+      setTitleNote("A story needs a title, so the previous one was kept.");
+      setTimeout(() => setTitleNote(""), 3500);
+      return;
+    }
+    if (next !== ws.title) setWs({ ...ws, title: next });
+    if (next === savedTitle.current) return;
+    persist({ title: next });
+    api.logEvent({ workspace_id: id, event_type: "story_renamed" });
+  };
 
   // Scroll to a passage once its highlight has rendered.
   useEffect(() => { if (anchor) editorRef.current?.revealAnchor(); }, [anchor]);
@@ -77,10 +171,10 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
     keystrokes.current += 1;
     setSaving("saving");
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
+    saveTimer.current = setTimeout(() => {
       const delta = value.length - lastLen.current;
       lastLen.current = value.length;
-      await api.updateWorkspace(id, { current_content: value });
+      persist({ current_content: value });
       // Batched rather than per-keypress: HLD 11.1 requires zero input lag.
       api.logEvent({
         workspace_id: id,
@@ -89,9 +183,25 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         payload: { keystrokes: keystrokes.current, length: value.length },
       });
       keystrokes.current = 0;
-      setSaving("saved");
-      setTimeout(() => setSaving("idle"), 1400);
     }, SAVE_DEBOUNCE);
+  };
+
+  /** An earlier version came back from the server: it is now the story. */
+  const onRestored = (w: Workspace) => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    unsaved.current = {};
+    setWs(w);
+    setDraft(w.current_content);
+    lastLen.current = w.current_content.length;
+    setAnchor(null);
+    clearSelection();
+    setHistoryOpen(false);
+  };
+
+  const toggleChat = () => {
+    const next = !chatOpen;
+    setChatOpen(next);
+    api.logEvent({ workspace_id: id, event_type: next ? "chat_shown" : "chat_hidden" });
   };
 
   /* Selection-scoped asking (C&C '24 §3.2). Also one of the Monitor's
@@ -126,6 +236,7 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
     async (text: string) => {
       if (!text.trim() || thinking) return;
       setMessage("");
+      setSendError("");
       setThinking(true);
       setStatus(STATUS.intent_classifier);
 
@@ -141,6 +252,16 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         const result = await streamTurn(id, { message: text, draft, selection }, (node, st) => {
           if (st === "running" && STATUS[node]) setStatus(STATUS[node]);
         });
+        if (result.delivery === "failed") {
+          // The condition's model didn't answer and nothing was substituted.
+          // The question stays on record (marked), and goes back in the box.
+          setTurns((prev) => prev.map((t) =>
+            t.turn_id === optimistic.turn_id
+              ? { ...t, turn_id: result.turn_id, delivery: "failed" } : t));
+          setMessage(text);
+          setSendError(result.response_text);
+          return;
+        }
         setTurns((prev) =>
           prev.concat({
             turn_id: result.turn_id, speaker: "ai", message_text: result.response_text,
@@ -154,9 +275,10 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         setFreshId(result.turn_id);
         clearSelection();
       } catch (err) {
-        console.error(err);
+        report(err);
         setTurns((prev) => prev.filter((t) => t.turn_id !== optimistic.turn_id));
         setMessage(text);
+        setSendError("Your message didn't reach your partner. It's back in the box - try sending it again.");
       } finally {
         setThinking(false);
       }
@@ -172,6 +294,19 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
     update(key, value);
     api.logEvent({ workspace_id: id, event_type: "preference_change", payload: { [key]: value } });
   };
+
+  if (loadError) {
+    return (
+      <div className="student flex h-screen items-center justify-center bg-[var(--color-desk)] px-6" data-theme={theme}>
+        <div className="sheet max-w-md px-8 py-8 text-center">
+          <p className="font-serif text-[18px] text-[var(--color-ink)]">{loadError}</p>
+          <Link href="/student" className="mt-5 inline-block text-[13.5px] text-[var(--color-ink-blue)] underline underline-offset-2">
+            Back to your stories
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   if (!checked || !user || !ws) {
     return (
@@ -199,20 +334,22 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
             Your stories
           </Link>
 
-          <span className="ml-auto mr-2 text-[12.5px] text-[var(--color-graphite)]" aria-live="polite">
-            {saving === "saving" ? "Saving…" : saving === "saved" ? "Saved" : ""}
+          <span
+            className={[
+              "ml-auto mr-2 text-[12.5px]",
+              saving === "retrying" ? "text-[var(--color-flag)]" : "text-[var(--color-graphite)]",
+            ].join(" ")}
+            aria-live="polite"
+          >
+            {saving === "saving" ? "Saving…"
+              : saving === "saved" ? "Saved"
+              : saving === "retrying" ? "Not saved yet - retrying…"
+              : ""}
           </span>
 
-          <ToolButton
-            label={prefs.focus ? "Turn off focus mode" : "Focus mode: fade everything but the paragraph you're writing"}
-            pressed={prefs.focus}
-            onClick={() => setPref("focus", !prefs.focus)}
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                 strokeWidth="1.9" strokeLinecap="round" aria-hidden>
-              <path d="M4 6h16" opacity=".35" /><path d="M4 12h16" /><path d="M4 18h16" opacity=".35" />
-            </svg>
-          </ToolButton>
+          <TextButton onClick={() => setHistoryOpen((v) => !v)} pressed={historyOpen}>
+            Earlier versions
+          </TextButton>
           <ToolButton
             label="Smaller text"
             disabled={prefs.textSize <= 0}
@@ -228,17 +365,34 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
             <span className="font-serif text-[17px]">A</span>
           </ToolButton>
           <ThemeButton theme={theme} onToggle={() => setPref("theme", theme === "night" ? "day" : "night")} />
+          {!chatOpen && (
+            <TextButton onClick={toggleChat}>Show writing partner</TextButton>
+          )}
         </div>
+
+        {historyOpen && (
+          <VersionHistory
+            workspaceId={id}
+            current={draft}
+            onRestored={onRestored}
+            onClose={() => setHistoryOpen(false)}
+          />
+        )}
 
         <div className="flex flex-1 justify-center px-3 pb-6 pt-3 md:px-8 md:pb-10">
           <article className="sheet flex h-fit w-full max-w-[46rem] flex-col px-7 pb-8 pt-10 sm:px-16 sm:pt-14">
             <input
               value={ws.title}
               onChange={(e) => setWs({ ...ws, title: e.target.value })}
-              onBlur={(e) => api.updateWorkspace(id, { title: e.target.value })}
+              onBlur={(e) => commitTitle(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+              placeholder="Title"
               aria-label="Story title"
               className="w-full bg-transparent font-serif text-[30px] font-medium leading-tight tracking-tight text-[var(--color-ink)] outline-none sm:text-[36px]"
             />
+            {titleNote && (
+              <p role="status" className="mt-2 text-[12.5px] text-[var(--color-flag)]">{titleNote}</p>
+            )}
             <div className="mb-6 mt-4 h-px w-12 bg-[var(--color-ink-blue)]/40" aria-hidden />
 
             <StoryEditor
@@ -247,7 +401,6 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
               onChange={onDraftChange}
               onSelectionChange={captureSelection}
               fontSize={fontSize}
-              focusMode={prefs.focus}
               pending={pending}
               anchor={anchor}
             />
@@ -259,8 +412,13 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         </div>
       </section>
 
-      {/* the partner - notes in the margin */}
-      <aside className="flex h-[45vh] shrink-0 flex-col border-t border-[var(--color-desk-edge)] md:h-auto md:w-[400px] md:border-l md:border-t-0 xl:w-[440px]">
+      {/* the partner */}
+      {chatOpen && (
+      <aside className="partner-panel flex h-[45vh] shrink-0 flex-col border-t md:h-auto md:w-[400px] md:border-l md:border-t-0 xl:w-[440px]">
+        <div className="flex shrink-0 items-center justify-between px-5 pt-3">
+          <span className="text-[12.5px] font-medium text-[var(--color-graphite)]">Writing partner</span>
+          <TextButton onClick={toggleChat}>Hide</TextButton>
+        </div>
         <Conversation
           turns={turns}
           thinking={thinking}
@@ -270,6 +428,11 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
         />
 
         <div className="shrink-0 px-4 pb-4 pt-2">
+          {sendError && (
+            <p role="alert" className="mb-2 rounded-md bg-[var(--color-flag-soft)] px-3 py-2 text-[12.5px] text-[var(--color-flag)]">
+              {sendError}
+            </p>
+          )}
           {selection && (
             <div className="mb-2 flex items-center gap-2 rounded-md bg-[var(--color-ink-wash)] px-3 py-1.5 text-[12.5px] text-[var(--color-ink-blue)]">
               <span className="min-w-0 flex-1 truncate font-serif italic">
@@ -311,6 +474,30 @@ export default function WorkspacePage({ params }: { params: Promise<{ id: string
           </div>
         </div>
       </aside>
+      )}
     </div>
+  );
+}
+
+/** A small labelled control for the workspace toolbar. Words, not icons:
+    an unlabelled three-line icon read as a dead menu (Florence's H3). */
+function TextButton({ onClick, pressed, children }: {
+  onClick: () => void;
+  pressed?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={pressed}
+      className={[
+        "rounded-md px-2 py-1 text-[12.5px] transition-colors",
+        pressed
+          ? "bg-[var(--color-ink-wash)] text-[var(--color-ink-blue)]"
+          : "text-[var(--color-graphite)] hover:bg-[var(--color-desk-edge)]/60 hover:text-[var(--color-ink)]",
+      ].join(" ")}
+    >
+      {children}
+    </button>
   );
 }

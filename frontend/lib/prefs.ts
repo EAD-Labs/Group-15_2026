@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 /**
- * The student's reading/writing comforts: night mode, text size, focus mode.
+ * The student's reading/writing comforts: night mode and text size.
  *
  * Per-browser conveniences, not research state, so they live in localStorage.
  * Changes are still logged as telemetry by the pages that expose them.
@@ -11,13 +11,12 @@ import { useCallback, useEffect, useState } from "react";
 export type StudentPrefs = {
   theme: "day" | "night";
   textSize: number; // index into TEXT_SIZES
-  focus: boolean;
 };
 
 export const TEXT_SIZES = [16, 18, 20, 22] as const;
 
 const KEY = "storystudio.prefs";
-const DEFAULTS: StudentPrefs = { theme: "day", textSize: 1, focus: false };
+const DEFAULTS: StudentPrefs = { theme: "day", textSize: 1 };
 
 function read(): StudentPrefs {
   try {

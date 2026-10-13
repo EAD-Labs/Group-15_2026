@@ -1,4 +1,6 @@
 """Google Gemini via the REST API. No SDK dependency."""
+import asyncio
+
 import httpx
 
 from .base import LLMProvider, LLMReply
@@ -8,6 +10,13 @@ API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models"
 
 class _QuotaExhausted(Exception):
     """This model is unavailable (rate-limited or retired); try the next one."""
+
+
+# "Model is experiencing high demand" and friends: momentary, and retrying the
+# *same* model a moment later usually works. Unlike walking the fallback chain,
+# a retry still delivers the intended model, so fidelity is unaffected.
+_TRANSIENT = {500, 502, 503, 504}
+_RETRY_DELAYS = (1.5, 3.0)
 
 
 class GeminiProvider(LLMProvider):
@@ -58,6 +67,11 @@ class GeminiProvider(LLMProvider):
             # Older models reject thinkingConfig outright - drop it and retry.
             if r.status_code == 400 and "thinking" in r.text.lower():
                 gen.pop("thinkingConfig", None)
+                r = await client.post(url, json=body, headers=headers)
+            for delay in _RETRY_DELAYS:
+                if r.status_code not in _TRANSIENT:
+                    break
+                await asyncio.sleep(delay)
                 r = await client.post(url, json=body, headers=headers)
             if r.status_code in (429, 404):
                 raise _QuotaExhausted(f"{model}: HTTP {r.status_code}")

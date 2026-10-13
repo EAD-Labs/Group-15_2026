@@ -92,6 +92,8 @@ export type AIRole = {
   reviewing_prompt: string;
   may_produce_prose: boolean;
   enforcement_level: number;
+  /** v1: questions only, RESPONSE/PROBES envelope. v2: answer first, per-turn support moves. */
+  response_contract?: "v1" | "v2";
   version: number;
   parent_role_id: string;
   created_at: string;
@@ -110,6 +112,12 @@ export type Arm = {
   scaffold_intensity: Intensity;
   system_prompt: string;
   allow_student_intensity: boolean;
+  /** Whether the writing-partner panel starts open for this condition. */
+  chat_default_open?: boolean;
+  /** "fail": tell the student the partner is unavailable; "fallback": offline scaffold, flagged. */
+  on_provider_failure?: "fail" | "fallback";
+  /** Bumped on every edit; turns record the version they ran under. */
+  version?: number;
   allow_student_model: boolean;
   allowed_providers: string[];
   is_control: boolean;
@@ -160,6 +168,8 @@ export type Mode = {
 };
 
 export type Workspace = {
+  /** From the workspace's condition: whether the partner panel starts open. */
+  chat_default_open?: boolean;
   workspace_id: string;
   title: string;
   initial_prompt: string;
@@ -197,6 +207,33 @@ export type Turn = {
   model_name: string;
   latency_ms: number;
   timestamp: string;
+  /** "failed": the condition's model could not answer and nothing was substituted. */
+  delivery?: Delivery;
+};
+
+export type Delivery = "delivered" | "fallback" | "failed";
+
+/** Researcher view: did each participant get the intended intervention? */
+export type FidelityReport = {
+  participants: {
+    participant: string; asks: number; intended: number;
+    substituted_model: number; fallback: number; failed: number;
+    classifier_rules: number; monitor_rules: number; unrecorded: number;
+  }[];
+  recent_degraded: {
+    participant: string; workspace_id: string; message: string;
+    degraded: string[]; arm_id: string; arm_version: number; timestamp: string;
+  }[];
+};
+
+/** Per-turn record of what each LLM call requested vs what answered (R1). */
+export type Fidelity = {
+  calls?: Record<string, {
+    requested_provider: string; requested_model: string;
+    provider: string; model: string; status: string; error?: string;
+  }>;
+  intended?: boolean;
+  degraded?: string[];
 };
 
 export type TurnResult = {
@@ -217,6 +254,10 @@ export type TurnResult = {
   model_name: string;
   latency_ms: number;
   error?: string;
+  request_form?: "direct" | "open";
+  support_move?: string;
+  delivery?: Delivery;
+  fidelity?: Fidelity;
 };
 
 export type GraphNode = {
@@ -287,4 +328,13 @@ export type Summary = {
     turns: number;
     updated_at: string;
   }[];
+};
+
+/** An earlier version of a story's text (see backend DraftSnapshot). */
+export type DraftVersion = {
+  snapshot_id: string;
+  content: string;
+  words: number;
+  reason: "autosave" | "before_ask" | "before_restore";
+  created_at: string;
 };

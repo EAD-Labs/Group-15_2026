@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AIRole, Arm, Intensity, Provider } from "@/lib/types";
 
 const INTENSITIES: Intensity[] = ["light", "balanced", "deep"];
@@ -12,6 +12,10 @@ const INTENSITIES: Intensity[] = ["light", "balanced", "deep"];
  * researcher scans. The knobs only appear once you are actually changing
  * something - eight always-visible dropdowns made the page feel like a
  * settings screen rather than a study.
+ *
+ * Every saved change is a new version of the condition (append-only, defect
+ * D1), so free-text fields and the slider save once - when you leave the
+ * field or let go - not on every keystroke or pixel of drag.
  */
 export function ConditionCard({ arm, providers, roles, onChange, onDelete }: {
   arm: Arm;
@@ -21,6 +25,15 @@ export function ConditionCard({ arm, providers, roles, onChange, onDelete }: {
   onDelete: () => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(arm.name);
+  const [prompt, setPrompt] = useState(arm.system_prompt);
+  const [temp, setTemp] = useState(arm.temperature);
+  useEffect(() => { setName(arm.name); }, [arm.name]);
+  useEffect(() => { setPrompt(arm.system_prompt); }, [arm.system_prompt]);
+  useEffect(() => { setTemp(arm.temperature); }, [arm.temperature]);
+  const commit = <K extends keyof Arm>(key: K, value: Arm[K]) => {
+    if (value !== arm[key]) onChange({ [key]: value } as Partial<Arm>);
+  };
   const providerLabel = providers.find((p) => p.id === arm.provider)?.label ?? arm.provider;
   const role = roles.find((r) => r.role_id === arm.role_id);
   const roleLabel = role?.name ?? arm.role_name ?? "no role";
@@ -34,8 +47,10 @@ export function ConditionCard({ arm, providers, roles, onChange, onDelete }: {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <input
-              value={arm.name}
-              onChange={(e) => onChange({ name: e.target.value })}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={() => (name.trim() ? commit("name", name.trim()) : setName(arm.name))}
+              onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
               className="min-w-0 max-w-[210px] flex-1 bg-transparent text-[13px] font-medium text-[var(--color-ink)] outline-none focus:underline focus:decoration-[var(--color-accent-line)] focus:underline-offset-4"
             />
             {arm.is_default && (
@@ -55,7 +70,8 @@ export function ConditionCard({ arm, providers, roles, onChange, onDelete }: {
           {/* The whole configuration as one scannable line. */}
           <div className="mt-1.5 font-mono text-[10.5px] text-[var(--color-ink-faint)]">
             {providerLabel} · {roleLabel} · {arm.scaffold_intensity} ·{" "}
-            t{arm.temperature.toFixed(2)}
+            t{arm.temperature.toFixed(2)} · chat {arm.chat_default_open === false ? "hidden" : "open"} ·{" "}
+            on failure: {arm.on_provider_failure === "fallback" ? "offline backup" : "show unavailable"} · v{arm.version ?? 1}
           </div>
         </div>
 
@@ -105,17 +121,37 @@ export function ConditionCard({ arm, providers, roles, onChange, onDelete }: {
                 {INTENSITIES.map((i) => <option key={i} value={i}>{i}</option>)}
               </select>
             </Field>
-            <Field label={`temperature ${arm.temperature.toFixed(2)}`}>
-              <input type="range" min={0} max={1.5} step={0.05} value={arm.temperature}
-                     onChange={(e) => onChange({ temperature: +e.target.value })}
+            <Field label={`temperature ${temp.toFixed(2)}`}>
+              <input type="range" min={0} max={1.5} step={0.05} value={temp}
+                     onChange={(e) => setTemp(+e.target.value)}
+                     onPointerUp={() => commit("temperature", temp)}
+                     onKeyUp={() => commit("temperature", temp)}
+                     onBlur={() => commit("temperature", temp)}
                      className="w-full accent-[var(--color-accent)]" />
+            </Field>
+            <Field label="writing partner panel starts">
+              <select value={arm.chat_default_open === false ? "hidden" : "open"}
+                      onChange={(e) => onChange({ chat_default_open: e.target.value === "open" })}
+                      className={selectCls}>
+                <option value="open">open</option>
+                <option value="hidden">hidden (student opens it)</option>
+              </select>
+            </Field>
+            <Field label="if the model can't answer">
+              <select value={arm.on_provider_failure ?? "fail"}
+                      onChange={(e) => onChange({ on_provider_failure: e.target.value as Arm["on_provider_failure"] })}
+                      className={selectCls}>
+                <option value="fail">tell the student it&apos;s unavailable</option>
+                <option value="fallback">use the offline backup (flagged)</option>
+              </select>
             </Field>
           </div>
 
           <Field label="custom system prompt — blank uses the role's prompt">
             <textarea
-              value={arm.system_prompt}
-              onChange={(e) => onChange({ system_prompt: e.target.value })}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onBlur={() => commit("system_prompt", prompt)}
               rows={4}
               placeholder="Leave blank to use the selected role's prompt."
               className="thin-scroll w-full resize-none rounded border border-[var(--color-margin-edge)] bg-[var(--color-margin)]/50 p-2 font-mono text-[10.5px] leading-relaxed text-[var(--color-ink)] outline-none focus:border-[var(--color-accent-line)]"

@@ -28,6 +28,7 @@ from ..models import (
 )
 from ..prompts import DEFAULT_INTENSITY, SCAFFOLD_INTENSITY
 from .experiments import default_arm, ensure_default_roles
+from .workspaces import snapshot
 from ..schemas import TurnRequest
 
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -58,6 +59,7 @@ def _role_dict(role: AIRole) -> dict:
         "reviewing_prompt": role.reviewing_prompt,
         "may_produce_prose": role.may_produce_prose,
         "enforcement_level": role.enforcement_level,
+        "response_contract": role.response_contract or "v1",
     }
 
 
@@ -84,10 +86,13 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
     if not ws:
         return {"error": "Workspace not found"}
 
-    # Keep the draft authoritative on the server before reasoning about it.
+    # Keep the draft authoritative on the server before reasoning about it,
+    # and keep the draft as it stood when the student asked (an earlier version
+    # they can return to, and process data for the researcher).
     if body.draft and body.draft != ws.current_content:
         ws.current_content = body.draft
-        db.commit()
+    snapshot(db, ws, "before_ask", force=True)
+    db.commit()
 
     past = list(db.scalars(
         select(ConversationTurn)
@@ -129,7 +134,10 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
     provider = (arm.provider if arm else "") or (cfg.provider if cfg else "")
     model = (arm.model_name if arm else "") or (cfg.model_name if cfg else "")
     temperature = arm.temperature if arm else (cfg.temperature if cfg else 0.8)
-    system_prompt = (arm.system_prompt if arm else "") or (cfg.system_prompt if cfg else "")
+    # Only the condition's own prompt. The global PromptConfig prompt used to
+    # fill in here, so one edit there would silently override every condition
+    # that had none - Ghost included (iteration-4 review, hole 6).
+    system_prompt = arm.system_prompt if arm else ""
     intensity = (arm.scaffold_intensity if arm else None) or ws.scaffold_intensity or DEFAULT_INTENSITY
 
     # Student-supplied overrides are honoured only where the condition permits.
@@ -166,6 +174,8 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
         goals=ws.goals or "",
         notes=ws.notes or "",
         arm_id=arm.arm_id if arm else "",
+        arm_version=(arm.version or 1) if arm else 0,
+        on_failure=(arm.on_provider_failure or "fail") if arm else "fail",
         draft_words=len(ws.current_content.split()),
         prev_draft_words=prev_draft_words,
         prev_activity=prev_activity,
@@ -190,6 +200,7 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
                 extra = {
                     "intercepted": state.intercepted,
                     "effective_activity": state.effective_activity,
+                    "support_move": state.support_move,
                 }
             elif node_id == "agency_enforcer":
                 extra = {"enforcement": state.enforcement}
@@ -208,9 +219,17 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
                 selection=body.selection.strip()[:2000],
                 intercepted=state.intercepted, arm_id=state.arm_id,
                 role_version_id=state.role_version_id,
+                arm_version=state.arm_version,
+                request_form=state.request_form, support_move=state.support_move,
+                fidelity={**state.fidelity, "delivery": state.delivery},
                 scaffold_intensity=state.intensity,
             )
-            ai_turn = ConversationTurn(
+            s.add(user_turn)
+            failed = state.delivery == "failed"
+            # A failed delivery produced no reply: storing the notice as an AI
+            # turn would put text the model never wrote into the retention and
+            # agency measures. The user turn carries the failure instead.
+            ai_turn = None if failed else ConversationTurn(
                 workspace_id=workspace_id, speaker="ai", message_text=state.response_text,
                 intent_type=state.intent, cognitive_activity=state.cognitive,
                 declared_activity=state.declared_activity,
@@ -218,10 +237,20 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
                 intercepted=state.intercepted, node_path=state.node_path, suggestions=state.probes,
                 model_name=state.model_name, provider=state.provider_used,
                 arm_id=state.arm_id, role_version_id=state.role_version_id,
+                arm_version=state.arm_version,
+                request_form=state.request_form, support_move=state.support_move,
+                fidelity={**state.fidelity, "delivery": state.delivery},
                 scaffold_intensity=state.intensity,
                 latency_ms=state.latency_ms,
             )
-            s.add_all([user_turn, ai_turn])
+            if ai_turn is not None:
+                s.add(ai_turn)
+            if state.delivery != "delivered":
+                s.add(TelemetryEvent(
+                    workspace_id=workspace_id, user_id=user_id, event_type="provider_failure",
+                    payload={"delivery": state.delivery, "error": state.error,
+                             "fidelity": state.fidelity, "arm_id": state.arm_id},
+                ))
             s.add(TelemetryEvent(
                 workspace_id=workspace_id, user_id=user_id, event_type="prompt",
                 duration_ms=state.latency_ms,
@@ -236,7 +265,17 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
                 duration_ms=state.latency_ms,
                 payload={"provider": state.provider_used, "model": state.model_name,
                          "node_path": state.node_path, "enforcement": state.enforcement,
-                         "probes": state.probes},
+                         "probes": state.probes, "support_move": state.support_move,
+                         "delivery": state.delivery,
+                         "intended": state.fidelity.get("intended", False),
+                         # What the model actually said, when the enforcer
+                         # changed it - so a researcher can judge whether the
+                         # enforcer was right. Server-side only; never sent
+                         # to the student's browser.
+                         **({"raw_reply": state.raw_reply[:4000]}
+                            if state.raw_reply and any(
+                                e.startswith(("stripped", "blocked", "truncated", "replaced"))
+                                for e in state.enforcement) else {})},
             ))
             if state.intercepted:
                 s.add(TelemetryEvent(
@@ -244,7 +283,7 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
                     payload={"original_request": body.message, "intent": state.intent},
                 ))
             s.commit()
-            turn_id = ai_turn.turn_id
+            turn_id = (ai_turn or user_turn).turn_id
 
         yield _sse("done", {
             "turn_id": turn_id,
@@ -264,6 +303,10 @@ async def take_turn(workspace_id: str, body: TurnRequest, db: Session = Depends(
             "model_name": state.model_name,
             "latency_ms": state.latency_ms,
             "error": state.error,
+            "request_form": state.request_form,
+            "support_move": state.support_move,
+            "delivery": state.delivery,
+            "fidelity": state.fidelity,
         })
 
     return StreamingResponse(

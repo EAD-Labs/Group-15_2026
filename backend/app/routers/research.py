@@ -19,13 +19,13 @@ from ..db import get_db
 from ..deps import current_user_id
 from ..metrics import agency_report
 from ..models import (
-    AIRole, ConversationTurn, ExperimentArm, PromptConfig, StoryWorkspace,
-    TelemetryEvent, User,
+    AIRole, ArmVersion, ConversationTurn, DraftSnapshot, ExperimentArm, PromptConfig,
+    StoryWorkspace, TelemetryEvent, User,
 )
 from ..prompts import BASE_SYSTEM_PROMPT
 from ..providers import available_providers, get_provider
 from ..schemas import ConfigIn, EventIn, RoleIn, RoleOut
-from .experiments import ensure_default_roles
+from .experiments import backfill_arm_versions, ensure_default_roles, record_arm_version
 
 router = APIRouter(prefix="/api/research", tags=["research"])
 
@@ -101,7 +101,7 @@ def update_config(body: ConfigIn, db: Session = Depends(get_db)):
 _ROLE_FIELDS = (
     "name", "archetype", "behaviour", "base_prompt", "planning_prompt",
     "translating_prompt", "reviewing_prompt", "may_produce_prose",
-    "enforcement_level",
+    "enforcement_level", "response_contract",
 )
 
 
@@ -114,6 +114,7 @@ def _role_out(r: AIRole) -> RoleOut:
         reviewing_prompt=r.reviewing_prompt,
         may_produce_prose=r.may_produce_prose,
         enforcement_level=r.enforcement_level,
+        response_contract=r.response_contract or "v1",
         version=r.version, parent_role_id=r.parent_role_id,
         created_at=r.created_at.isoformat(),
     )
@@ -164,8 +165,12 @@ def update_role(role_id: str, body: RoleIn, db: Session = Depends(get_db)):
     db.flush()  # assign new_role.role_id before repointing
 
     repointed = 0
+    backfill_arm_versions(db)
     for arm in db.scalars(select(ExperimentArm).where(ExperimentArm.role_id == role_id)):
         arm.role_id = new_role.role_id
+        # A new role version is a new condition version: same append-only rule.
+        arm.version = (arm.version or 1) + 1
+        record_arm_version(db, arm)
         repointed += 1
 
     db.add(TelemetryEvent(
@@ -418,6 +423,55 @@ def timeline(workspace_id: str = "", limit: int = 200, db: Session = Depends(get
 # Export (UC-02 student, UC-04 researcher)
 # --------------------------------------------------------------------------
 
+@router.get("/fidelity")
+def fidelity_report(db: Session = Depends(get_db)):
+    """Did each participant get the intervention their condition specifies?
+
+    Per participant: how many of their questions were answered by the
+    intended provider and model, and how many were degraded - a sibling model
+    substituted, the offline backup used, no reply at all, or the classifier /
+    Monitor falling back to rules. Turns from before fidelity was recorded are
+    counted separately as 'unrecorded' rather than guessed at.
+    """
+    codes = _anonymise(db)
+    owners = {w.workspace_id: w.user_id for w in db.scalars(select(StoryWorkspace))}
+    rows: dict[str, dict] = {}
+    recent: list[dict] = []
+    for t in db.scalars(
+        select(ConversationTurn).where(ConversationTurn.speaker == "user")
+        .order_by(ConversationTurn.timestamp)
+    ):
+        uid = owners.get(t.workspace_id, "")
+        r = rows.setdefault(uid, {
+            "participant": codes.get(uid, "Participant_XX"), "asks": 0, "intended": 0,
+            "substituted_model": 0, "fallback": 0, "failed": 0,
+            "classifier_rules": 0, "monitor_rules": 0, "unrecorded": 0,
+        })
+        r["asks"] += 1
+        f = t.fidelity or {}
+        calls = f.get("calls") or {}
+        if not calls:
+            r["unrecorded"] += 1
+            continue
+        if f.get("intended"):
+            r["intended"] += 1
+        status = (calls.get("response") or {}).get("status", "")
+        if status in ("substituted_model", "fallback", "failed"):
+            r[status] += 1
+        if (calls.get("classifier") or {}).get("status") == "rules":
+            r["classifier_rules"] += 1
+        if (calls.get("monitor") or {}).get("status") == "rules":
+            r["monitor_rules"] += 1
+        if f.get("degraded"):
+            recent.append({
+                "participant": r["participant"], "workspace_id": t.workspace_id,
+                "message": t.message_text[:120], "degraded": f["degraded"],
+                "arm_id": t.arm_id, "arm_version": t.arm_version,
+                "timestamp": t.timestamp.isoformat(),
+            })
+    return {"participants": list(rows.values()), "recent_degraded": recent[-25:][::-1]}
+
+
 def _anonymise(db: Session) -> dict[str, str]:
     """Map real ids to Participant_NN, per HLD 11.4 telemetry anonymisation."""
     users = list(db.scalars(select(User).order_by(User.created_at)))
@@ -445,7 +499,9 @@ def export_json(workspace_id: str = "", db: Session = Depends(get_db)):
             "anonymised": True,
             # 1.2: decided_activity / activity_evidence / draft_words on turns
             # (the iteration-3 Monitor), notes on workspaces.
-            "schema_version": "1.2",
+            # 1.3: role_version_id, arm_version, request_form, support_move and
+            # fidelity on turns; arm_versions; draft_versions (iteration 4).
+            "schema_version": "1.3",
         },
         "workspaces": [
             {
@@ -479,9 +535,25 @@ def export_json(workspace_id: str = "", db: Session = Depends(get_db)):
                 "intercepted": t.intercepted, "node_path": t.node_path,
                 "suggestions": t.suggestions, "provider": t.provider,
                 "model_name": t.model_name, "latency_ms": t.latency_ms,
+                "role_version_id": t.role_version_id or "",
+                "arm_id": t.arm_id or "", "arm_version": t.arm_version or 0,
+                "request_form": t.request_form or "",
+                "support_move": t.support_move or "",
+                "fidelity": t.fidelity or {},
                 "timestamp": t.timestamp.isoformat(),
             }
             for t in turns
+        ],
+        "arm_versions": [
+            {"arm_id": v.arm_id, "version": v.version, "settings": v.settings,
+             "created_at": v.created_at.isoformat()}
+            for v in db.scalars(select(ArmVersion).order_by(ArmVersion.arm_id, ArmVersion.version))
+        ],
+        "draft_versions": [
+            {"workspace_id": d.workspace_id, "reason": d.reason, "words": d.words,
+             "content": d.content, "created_at": d.created_at.isoformat()}
+            for d in db.scalars(select(DraftSnapshot).order_by(DraftSnapshot.created_at))
+            if d.workspace_id in ids
         ],
         "telemetry_events": [
             {

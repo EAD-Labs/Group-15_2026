@@ -65,7 +65,7 @@ export function RoleCard({ role, usedByCount, onSave, onDelete }: {
           </div>
           <div className="mt-1.5 font-mono text-[10.5px] text-[var(--color-ink-faint)]">
             {role.behaviour} · {role.may_produce_prose ? "may write prose" : "no prose"} ·{" "}
-            enforcement {role.enforcement_level}
+            enforcement {role.enforcement_level} · contract {role.response_contract ?? "v1"}
           </div>
         </div>
 

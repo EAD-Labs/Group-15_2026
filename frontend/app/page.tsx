@@ -17,11 +17,14 @@ const PORTALS: {
   {
     role: "student",
     title: "Student",
-    blurb: "Write, and be asked better questions about what you wrote.",
+    // Neutral on purpose: participants in different conditions all see this
+    // page, so it must not describe how the AI behaves (or promise agency) -
+    // that would prime what the study measures (Florence, free-exploration 3).
+    blurb: "Write your story, with an AI writing partner beside it.",
     bullets: [
       "Your story on one side, a writing partner on the other",
-      "A partner that will not write your story",
-      "It adapts to whether you're planning, drafting or revising",
+      "Message the partner whenever you like",
+      "Your stories are saved as you write",
     ],
   },
   {
@@ -78,7 +81,7 @@ export default function Entry() {
           </div>
 
           <h1 className="max-w-2xl font-serif text-[32px] leading-[1.22] tracking-tight text-[var(--color-ink)]">
-            A writing partner that asks instead of answers.
+            Write a story, with an AI writing partner beside you.
           </h1>
           <p className="mt-3 max-w-lg text-[13.5px] leading-relaxed text-[var(--color-ink-soft)]">
             Human–AI co-creative storytelling for higher education. Choose how

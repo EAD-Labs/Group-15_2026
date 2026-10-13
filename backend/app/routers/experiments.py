@@ -16,10 +16,14 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..db import get_db
 from ..metrics import agency_report
-from ..models import AIRole, ConversationTurn, ExperimentArm, StoryWorkspace, TelemetryEvent, User
+from ..models import (
+    AIRole, ArmVersion, ConversationTurn, ExperimentArm, StoryWorkspace, TelemetryEvent, User,
+)
 from ..prompts import (
-    BASE_SYSTEM_PROMPT, CONTROL_SYSTEM_PROMPT, SCAFFOLD_INTENSITY,
-    TUTOR_PLANNING_FRAGMENT, TUTOR_REVIEWING_FRAGMENT, TUTOR_TRANSLATING_FRAGMENT,
+    BASE_SYSTEM_PROMPT, BASE_SYSTEM_PROMPT_V2, CONTROL_SYSTEM_PROMPT, RESPONSE_CONTRACT_V2,
+    SCAFFOLD_INTENSITY, TUTOR_PLANNING_FRAGMENT, TUTOR_PLANNING_FRAGMENT_V2,
+    TUTOR_REVIEWING_FRAGMENT, TUTOR_REVIEWING_FRAGMENT_V2, TUTOR_TRANSLATING_FRAGMENT,
+    TUTOR_TRANSLATING_FRAGMENT_V2,
 )
 from ..schemas import ArmIn, ArmOut, AssignIn
 
@@ -38,10 +42,45 @@ def _out(a: ExperimentArm, n_participants: int = 0, role: AIRole | None = None) 
         allow_student_intensity=a.allow_student_intensity,
         allow_student_model=a.allow_student_model,
         allowed_providers=a.allowed_providers or [],
+        chat_default_open=a.chat_default_open if a.chat_default_open is not None else True,
+        on_provider_failure=a.on_provider_failure or "fail",
+        version=a.version or 1,
         is_control=a.is_control, is_default=a.is_default, active=a.active,
         participants=n_participants,
         role_name=role.name if role else None,
     )
+
+
+# Everything about a condition that can change what a participant experiences.
+# Snapshotted whole into ArmVersion on creation and on every edit that touches
+# one of them. Labels and bookkeeping (name, description, is_default,
+# is_control, active) change nothing a participant sees, so they don't version.
+_VERSIONED_FIELDS = (
+    "provider", "model_name", "temperature",
+    "guardrail_strictness", "role_id", "scaffold_intensity", "system_prompt",
+    "allow_student_intensity", "allow_student_model", "allowed_providers",
+    "chat_default_open", "on_provider_failure",
+)
+
+
+def _settings(arm: ExperimentArm) -> dict:
+    return {f: getattr(arm, f) for f in _VERSIONED_FIELDS}
+
+
+def record_arm_version(db: Session, arm: ExperimentArm) -> None:
+    """Append the arm's current settings as version `arm.version`."""
+    db.add(ArmVersion(arm_id=arm.arm_id, version=arm.version or 1, settings=_settings(arm)))
+
+
+def backfill_arm_versions(db: Session) -> None:
+    """Give every arm from before versioning its version-1 snapshot."""
+    have = {v.arm_id for v in db.scalars(select(ArmVersion))}
+    missing = [a for a in db.scalars(select(ExperimentArm)) if a.arm_id not in have]
+    for arm in missing:
+        arm.version = arm.version or 1
+        record_arm_version(db, arm)
+    if missing:
+        db.commit()
 
 
 def _counts(db: Session) -> dict[str, int]:
@@ -68,17 +107,7 @@ def ensure_default_roles(db: Session) -> dict[str, AIRole]:
     roles = {}
 
     if "tutor" not in existing:
-        tutor = AIRole(
-            name="Socratic Tutor",
-            archetype="tutor",
-            behaviour="socratic_questioning",
-            base_prompt=BASE_SYSTEM_PROMPT,
-            planning_prompt=TUTOR_PLANNING_FRAGMENT,
-            translating_prompt=TUTOR_TRANSLATING_FRAGMENT,
-            reviewing_prompt=TUTOR_REVIEWING_FRAGMENT,
-            may_produce_prose=False,
-            enforcement_level=2,
-        )
+        tutor = AIRole(name="Socratic Tutor", version=1, **_TUTOR_V2)
         db.add(tutor)
         roles["tutor"] = tutor
     else:
@@ -94,7 +123,7 @@ def ensure_default_roles(db: Session) -> dict[str, AIRole]:
             tutor.planning_prompt = TUTOR_PLANNING_FRAGMENT
             tutor.translating_prompt = TUTOR_TRANSLATING_FRAGMENT
             tutor.reviewing_prompt = TUTOR_REVIEWING_FRAGMENT
-        roles["tutor"] = tutor
+        roles["tutor"] = _upgrade_stock_tutor(db, tutor)
 
     if "ghost" not in existing:
         ghost = AIRole(
@@ -118,6 +147,62 @@ def ensure_default_roles(db: Session) -> dict[str, AIRole]:
     for r in roles.values():
         db.refresh(r)
     return roles
+
+
+# The Socratic Tutor under response contract v2 (Florence's heuristic
+# evaluation, H4-H7). Seeded as-is on a fresh database.
+_TUTOR_V2 = dict(
+    archetype="tutor",
+    behaviour="socratic_questioning",
+    base_prompt=BASE_SYSTEM_PROMPT_V2,
+    planning_prompt=TUTOR_PLANNING_FRAGMENT_V2,
+    translating_prompt=TUTOR_TRANSLATING_FRAGMENT_V2,
+    reviewing_prompt=TUTOR_REVIEWING_FRAGMENT_V2,
+    may_produce_prose=False,
+    enforcement_level=2,
+    response_contract=RESPONSE_CONTRACT_V2,
+)
+
+
+def _upgrade_stock_tutor(db: Session, tutor: AIRole) -> AIRole:
+    """Move an untouched stock v1 Tutor to contract v2 - append-only.
+
+    Writes v2 as a *new version* of the role (parent = the v1 row) and
+    repoints the conditions that used v1, bumping their versions, exactly as a
+    researcher's edit would. Turns already produced under v1 keep pointing at
+    v1. A Tutor a researcher has edited is never touched: their edit is a
+    deliberate configuration, and replacing it would be our edit, not theirs.
+    """
+    stock_v1 = (
+        (tutor.response_contract or "v1") == "v1"
+        and tutor.base_prompt == BASE_SYSTEM_PROMPT
+        and tutor.planning_prompt == TUTOR_PLANNING_FRAGMENT
+        and tutor.translating_prompt == TUTOR_TRANSLATING_FRAGMENT
+        and tutor.reviewing_prompt == TUTOR_REVIEWING_FRAGMENT
+        and tutor.enforcement_level == 2
+        and not tutor.may_produce_prose
+    )
+    if not stock_v1:
+        return tutor
+    upgraded = AIRole(
+        name=tutor.name, version=tutor.version + 1, parent_role_id=tutor.role_id, **_TUTOR_V2,
+    )
+    db.add(upgraded)
+    db.flush()
+    arms = list(db.scalars(select(ExperimentArm).where(ExperimentArm.role_id == tutor.role_id)))
+    if arms:
+        backfill_arm_versions(db)
+    for arm in arms:
+        arm.role_id = upgraded.role_id
+        arm.version = (arm.version or 1) + 1
+        record_arm_version(db, arm)
+    db.add(TelemetryEvent(
+        event_type="role_updated",
+        payload={"from_role_id": tutor.role_id, "to_role_id": upgraded.role_id,
+                 "version": upgraded.version, "changes": ["response_contract v1 -> v2"],
+                 "arms_repointed": len(arms), "automatic": True},
+    ))
+    return upgraded
 
 
 def backfill_arm_roles(db: Session) -> None:
@@ -145,6 +230,7 @@ def ensure_default_arms(db: Session) -> None:
     """Seed a two-arm study so the comparison view is never empty on arrival."""
     if db.scalar(select(ExperimentArm)):
         backfill_arm_roles(db)
+        backfill_arm_versions(db)
         return
     roles = ensure_default_roles(db)
 
@@ -174,6 +260,7 @@ def ensure_default_arms(db: Session) -> None:
         ),
     ])
     db.commit()
+    backfill_arm_versions(db)
 
 
 def _role_map(db: Session) -> dict[str, AIRole]:
@@ -196,8 +283,10 @@ def create_arm(body: ArmIn, db: Session = Depends(get_db)):
         # A condition without a role is not a valid experiment. Default to the
         # Socratic Tutor, matching where an unassigned participant lands.
         data["role_id"] = ensure_default_roles(db)["tutor"].role_id
-    arm = ExperimentArm(**data)
+    arm = ExperimentArm(**data, version=1)
     db.add(arm)
+    db.flush()
+    record_arm_version(db, arm)
     db.add(TelemetryEvent(event_type="arm_created", payload={"name": arm.name}))
     db.commit()
     db.refresh(arm)
@@ -210,10 +299,10 @@ def update_arm(arm_id: str, body: ArmIn, db: Session = Depends(get_db)):
     if not arm:
         raise HTTPException(404, "Condition not found")
     changes = body.model_dump(exclude_none=True)
-    # Record the actual before/after values, not just the field names. A
-    # condition edited mid-study must still be reconstructable from telemetry
-    # (iteration-2 plan, D1). Full arm versioning is deferred; this closes the
-    # "can't tell before from after" gap in the meantime.
+    # Append-only (defect D1): the arm keeps its id, but each edit becomes a
+    # new version with its full settings stored in ArmVersion, and turns
+    # record the version they ran under. The diff in telemetry is a
+    # convenience; the ArmVersion rows are the record.
     diff = {
         k: {"from": getattr(arm, k, None), "to": v}
         for k, v in changes.items()
@@ -225,14 +314,28 @@ def update_arm(arm_id: str, body: ArmIn, db: Session = Depends(get_db)):
                 setattr(other, flag, False)
     for k, v in changes.items():
         setattr(arm, k, v)
+    if any(k in _VERSIONED_FIELDS for k in diff):
+        backfill_arm_versions(db)  # make sure the pre-edit version is on record
+        arm.version = (arm.version or 1) + 1
+        record_arm_version(db, arm)
     db.add(TelemetryEvent(
         event_type="arm_updated",
-        payload={"arm_id": arm_id, "changes": diff},
+        payload={"arm_id": arm_id, "version": arm.version, "changes": diff},
     ))
     db.commit()
     db.refresh(arm)
     role = db.get(AIRole, arm.role_id) if arm.role_id else None
     return _out(arm, _counts(db).get(arm_id, 0), role)
+
+
+@router.get("/{arm_id}/versions")
+def arm_versions(arm_id: str, db: Session = Depends(get_db)):
+    """Every version of a condition's settings, oldest first."""
+    rows = db.scalars(
+        select(ArmVersion).where(ArmVersion.arm_id == arm_id).order_by(ArmVersion.version)
+    )
+    return [{"version": v.version, "settings": v.settings,
+             "created_at": v.created_at.isoformat()} for v in rows]
 
 
 @router.delete("/{arm_id}")

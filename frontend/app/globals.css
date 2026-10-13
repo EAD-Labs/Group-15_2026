@@ -168,7 +168,7 @@ html, body {
   color-scheme: dark;
   --color-desk:      #141922;
   --color-desk-edge: #2b3341;
-  --color-sheet:     #1d232e;
+  --color-sheet:     #222a37;
   --color-ink:       #e4e8ef;
   --color-ink-faint: #6f7886;
   --color-ink-blue:  #9ab6e6;
@@ -178,5 +178,31 @@ html, body {
   --color-accent:    #9ab6e6;
 }
 .student[data-theme="night"] .sheet {
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04), 0 18px 40px -16px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.07), 0 18px 40px -16px rgba(0, 0, 0, 0.6);
+}
+
+/* The partner's panel and its messages. The panel gets its own surface so the
+   story and the chat read as two places, in both themes - in night mode the
+   desk, the sheet and the chat were three near-identical darks (Florence, H3). */
+.student {
+  --color-panel:      #f3f5f8;
+  --color-panel-edge: #cfd6df;
+  --color-msg:        #ffffff;
+  --color-msg-edge:   #dde2e9;
+}
+.partner-panel {
+  background: var(--color-panel);
+  border-color: var(--color-panel-edge);
+}
+.partner-msg {
+  background: var(--color-msg);
+  box-shadow: 0 0 0 1px var(--color-msg-edge);
+}
+.student[data-theme="night"] {
+  --color-panel:      #0d1118;
+  --color-panel-edge: #3a4558;
+  --color-msg:        #232b38;
+  --color-msg-edge:   #344055;
+  --color-flag:       #f0b25a;
+  --color-flag-soft:  #3a2c16;
 }

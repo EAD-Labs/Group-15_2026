@@ -17,3 +17,6 @@ frontend/out/
 # The C&C '24 paper is ACM-copyrighted; the HLD and client brief carry the
 # client's contact details. The README cites the paper by DOI instead.
 *.pdf
+
+# Client evaluation sheets carry reviewers' names and ratings - shared by mail.
+*.xlsx

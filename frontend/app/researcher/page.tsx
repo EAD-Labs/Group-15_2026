@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, report } from "@/lib/api";
 import type { AIRole, Arm, Comparison, Provider, SessionUser } from "@/lib/types";
 import { ConditionCard } from "@/components/ConditionCard";
 import { RoleCard } from "@/components/RoleCard";
@@ -56,7 +56,7 @@ export default function StudyPage() {
     setArms(a); setRoles(r); setCmp(c); setProviders(p.providers); setParticipants(u);
   }, []);
 
-  useEffect(() => { if (checked) refresh().catch(console.error); }, [checked, refresh]);
+  useEffect(() => { if (checked) refresh().catch(report); }, [checked, refresh]);
   useEffect(() => {
     if (!live || !checked) return;
     const t = setInterval(() => refresh().catch(() => {}), 5000);
@@ -68,8 +68,13 @@ export default function StudyPage() {
   const note = (m: string) => { setToast(m); setTimeout(() => setToast(""), 2200); };
   const patch = async (armId: string, body: Partial<Arm>) => {
     setArms((prev) => prev.map((a) => (a.arm_id === armId ? { ...a, ...body } : a)));
-    await api.updateArm(armId, body);
-    refresh();
+    try {
+      await api.updateArm(armId, body);
+    } catch (err) {
+      report(err);
+      note("That change was not saved");
+    }
+    refresh().catch(report);
   };
 
   const saveRole = async (roleId: string, body: Partial<AIRole>) => {

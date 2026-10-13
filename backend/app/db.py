@@ -39,6 +39,14 @@ _ADDED_COLUMNS = [
     ("conversation_turns", "activity_evidence", "JSON"),
     ("conversation_turns", "draft_words", "INTEGER DEFAULT 0"),
     ("conversation_turns", "selection", "TEXT DEFAULT ''"),
+    ("ai_roles", "response_contract", "VARCHAR DEFAULT 'v1'"),
+    ("experiment_arms", "chat_default_open", "BOOLEAN DEFAULT 1"),
+    ("experiment_arms", "on_provider_failure", "VARCHAR DEFAULT 'fail'"),
+    ("experiment_arms", "version", "INTEGER DEFAULT 1"),
+    ("conversation_turns", "arm_version", "INTEGER DEFAULT 0"),
+    ("conversation_turns", "fidelity", "JSON"),
+    ("conversation_turns", "support_move", "VARCHAR DEFAULT ''"),
+    ("conversation_turns", "request_form", "VARCHAR DEFAULT ''"),
 ]
 
 

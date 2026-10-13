@@ -102,7 +102,7 @@ def test_declared_and_detected_are_both_persisted_and_exported(client):
     assert "cognitive_activity" in user_turn  # detected still there
 
     export = client.get("/api/research/export.json").json()
-    assert export["export_meta"]["schema_version"] == "1.2"
+    assert export["export_meta"]["schema_version"] == "1.3"
     assert all("declared_activity" in t for t in export["conversation_turns"])
 
     tl = client.get(f"/api/research/timeline?workspace_id={ws}").json()["points"]

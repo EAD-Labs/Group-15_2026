@@ -1,4 +1,6 @@
 """Request / response contracts."""
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -28,6 +30,8 @@ class ArmIn(BaseModel):
     allow_student_intensity: bool | None = None
     allow_student_model: bool | None = None
     allowed_providers: list[str] | None = None
+    chat_default_open: bool | None = None
+    on_provider_failure: Literal["fail", "fallback"] | None = None
     is_control: bool | None = None
     is_default: bool | None = None
     active: bool | None = None
@@ -48,6 +52,9 @@ class ArmOut(BaseModel):
     allow_student_intensity: bool
     allow_student_model: bool
     allowed_providers: list[str]
+    chat_default_open: bool = True
+    on_provider_failure: str = "fail"
+    version: int = 1
     is_control: bool
     is_default: bool
     active: bool
@@ -64,6 +71,7 @@ class RoleIn(BaseModel):
     reviewing_prompt: str | None = None
     may_produce_prose: bool | None = None
     enforcement_level: int | None = None
+    response_contract: Literal["v1", "v2"] | None = None
 
 
 class RoleOut(BaseModel):
@@ -75,6 +83,7 @@ class RoleOut(BaseModel):
     planning_prompt: str
     translating_prompt: str
     reviewing_prompt: str
+    response_contract: str = "v1"
     may_produce_prose: bool
     enforcement_level: int
     version: int
@@ -126,6 +135,8 @@ class WorkspaceOut(BaseModel):
     turn_count: int = 0
     owner: str = ""
     scaffold_intensity: str = "balanced"
+    # From the workspace's condition: whether the partner panel starts open.
+    chat_default_open: bool = True
 
 
 class TurnRequest(BaseModel):

@@ -1,21 +1,53 @@
 import { authHeaders } from "./session";
 import type {
-  AIRole, Arm, Comparison, GraphNode, Mode, Provider, ResearchConfig, SessionUser,
+  AIRole, Arm, Comparison, DraftVersion, FidelityReport, GraphNode, Mode, Provider, ResearchConfig, SessionUser,
   StudentOptions, Summary, Template, TelemetryEvent, TimelinePoint, Turn,
   TurnResult, Workspace,
 } from "./types";
 
+/** A request the server answered with an error status. `status` 0 = unreachable. */
+export class ApiError extends Error {
+  constructor(public status: number, public detail: string) {
+    super(`${status} ${detail}`);
+  }
+}
+
+/** The server's own explanation, if it sent one (FastAPI's {"detail": ...}). */
+function detailOf(body: string): string {
+  try {
+    const d = JSON.parse(body)?.detail;
+    if (typeof d === "string") return d;
+  } catch { /* not JSON */ }
+  return body.slice(0, 200);
+}
+
+/**
+ * Report a failure without throwing it at the page.
+ *
+ * console.warn, not console.error: the Next.js dev server turns every
+ * console.error into a red "Issue" badge whose overlay a student cannot get
+ * out of - which is what Florence hit on a failed title save.
+ */
+export function report(err: unknown) {
+  console.warn("[story-studio]", err);
+}
+
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeaders(),
-      ...(init?.headers ?? {}),
-    },
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders(),
+        ...(init?.headers ?? {}),
+      },
+      cache: "no-store",
+    });
+  } catch (err) {
+    throw new ApiError(0, String(err));
+  }
+  if (!res.ok) throw new ApiError(res.status, detailOf(await res.text()));
   return res.json() as Promise<T>;
 }
 
@@ -68,6 +100,8 @@ export const api = {
 
   templates: () => json<{ templates: Template[] }>("/api/templates").then((r) => r.templates),
 
+  fidelity: () => json<FidelityReport>("/api/research/fidelity"),
+
   timeline: (workspaceId = "") =>
     json<{ points: TimelinePoint[] }>(
       `/api/research/timeline${workspaceId ? `?workspace_id=${workspaceId}` : ""}`,
@@ -91,6 +125,11 @@ export const api = {
     json<{ ok: boolean }>(`/api/workspaces/${id}`, { method: "DELETE" }),
 
   turns: (id: string) => json<Turn[]>(`/api/workspaces/${id}/turns`),
+
+  versions: (id: string) => json<DraftVersion[]>(`/api/workspaces/${id}/versions`),
+
+  restoreVersion: (id: string, snapshotId: string) =>
+    json<Workspace>(`/api/workspaces/${id}/versions/${snapshotId}/restore`, { method: "POST" }),
 
   graph: () => json<{ nodes: GraphNode[] }>("/api/graph").then((r) => r.nodes),
 

@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { api } from "@/lib/api";
-import type { SessionUser, Summary, TelemetryEvent, TimelinePoint } from "@/lib/types";
+import { api, report } from "@/lib/api";
+import type { FidelityReport, SessionUser, Summary, TelemetryEvent, TimelinePoint } from "@/lib/types";
 import { IntentChart } from "@/components/IntentChart";
 import { CognitiveChart } from "@/components/CognitiveChart";
 import { AgencyMeter } from "@/components/AgencyMeter";
@@ -32,22 +32,24 @@ export default function DataPage() {
   const [events, setEvents] = useState<TelemetryEvent[]>([]);
   const [timeline, setTimeline] = useState<TimelinePoint[]>([]);
   const [participants, setParticipants] = useState<SessionUser[]>([]);
+  const [fid, setFid] = useState<FidelityReport | null>(null);
   const [scope, setScope] = useState("");
   const [live, setLive] = useState(true);
 
   const refresh = useCallback(async (workspaceId: string) => {
-    const [s, e, t, p] = await Promise.all([
+    const [s, e, t, p, f] = await Promise.all([
       api.summary(workspaceId),
       api.events(60, workspaceId),
       api.timeline(workspaceId),
       api.participants(),
+      api.fidelity(),
     ]);
-    setSummary(s); setEvents(e); setTimeline(t); setParticipants(p);
+    setSummary(s); setEvents(e); setTimeline(t); setParticipants(p); setFid(f);
   }, []);
 
   useEffect(() => {
     if (!checked) return;
-    refresh(scope).catch(console.error);
+    refresh(scope).catch(report);
   }, [checked, scope, refresh]);
 
   useEffect(() => {
@@ -243,7 +245,55 @@ export default function DataPage() {
           </div>
         </Section>
 
-        <Section n="04" title="Event stream" hint={`${summary?.event_count ?? 0} events captured`}>
+        <Section n="04" title="Delivery fidelity"
+                 hint="did each participant get the model and role their condition specifies?">
+          <div className="overflow-x-auto rounded-lg border border-[var(--color-margin-edge)] bg-white">
+            <table className="w-full text-left text-[11.5px]">
+              <thead className="font-mono text-[9.5px] uppercase tracking-wider text-[var(--color-ink-faint)]">
+                <tr>
+                  {["participant", "asks", "as intended", "other model", "offline backup",
+                    "no reply", "classifier rules", "monitor rules", "not recorded"].map((h) => (
+                    <th key={h} className="px-3 py-2 font-normal">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(fid?.participants ?? []).length === 0 ? (
+                  <tr><td colSpan={9} className="px-3 py-3 text-[var(--color-ink-faint)]">No questions asked yet.</td></tr>
+                ) : fid!.participants.map((r) => {
+                  const recorded = r.asks - r.unrecorded;
+                  const ok = recorded > 0 && r.intended === recorded;
+                  return (
+                    <tr key={r.participant} className="border-t border-[var(--color-margin-edge)] tabular-nums">
+                      <td className="px-3 py-1.5 font-mono">{r.participant}</td>
+                      <td className="px-3 py-1.5">{r.asks}</td>
+                      <td className={`px-3 py-1.5 ${ok ? "text-[var(--color-agency)]" : recorded ? "font-semibold text-[var(--color-agency-low)]" : ""}`}>
+                        {recorded ? `${r.intended}/${recorded}` : "—"}
+                      </td>
+                      <td className="px-3 py-1.5">{r.substituted_model || ""}</td>
+                      <td className="px-3 py-1.5">{r.fallback || ""}</td>
+                      <td className="px-3 py-1.5">{r.failed || ""}</td>
+                      <td className="px-3 py-1.5">{r.classifier_rules || ""}</td>
+                      <td className="px-3 py-1.5">{r.monitor_rules || ""}</td>
+                      <td className="px-3 py-1.5 text-[var(--color-ink-faint)]">{r.unrecorded || ""}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {(fid?.recent_degraded.length ?? 0) > 0 && (
+            <ul className="mt-2 space-y-1 font-mono text-[10.5px] text-[var(--color-ink-soft)]">
+              {fid!.recent_degraded.slice(0, 8).map((d, i) => (
+                <li key={i} className="truncate">
+                  {new Date(d.timestamp + "Z").toLocaleTimeString()} · {d.participant} · condition v{d.arm_version} · {d.degraded.join("; ")} · “{d.message}”
+                </li>
+              ))}
+            </ul>
+          )}
+        </Section>
+
+        <Section n="05" title="Event stream" hint={`${summary?.event_count ?? 0} events captured`}>
           <div className="mb-2.5 flex flex-wrap gap-2">
             <a href="/api/research/export.json"
                className="rounded-md border border-[var(--color-margin-edge)] bg-white px-3 py-1.5 font-mono text-[11px] text-[var(--color-ink-soft)] transition-colors hover:border-[var(--color-accent-line)] hover:text-[var(--color-accent)]">

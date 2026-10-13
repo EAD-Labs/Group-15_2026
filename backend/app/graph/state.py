@@ -35,6 +35,9 @@ class TurnState:
     goals: str = ""  # the writer's stated goal for the piece, if any
     notes: str = ""  # the writer's brief idea / journal for the story, if any
     arm_id: str = ""
+    arm_version: int = 0
+    # Condition's policy when its model cannot answer: "fail" | "fallback".
+    on_failure: str = "fail"
 
     # Monitor inputs, read from the previous turn in this story.
     draft_words: int = 0
@@ -46,6 +49,10 @@ class TurnState:
     # produced along the way
     intent: str = ""
     cognitive: str = ""
+    # direct | open - whether the request has one right answer (classifier axis 3)
+    request_form: str = ""
+    # How the arbiter told the role to meet this turn (prompts.SUPPORT_MOVES).
+    support_move: str = ""
     activity_evidence: dict = field(default_factory=dict)
     intercepted: bool = False
     system_prompt: str = ""
@@ -56,6 +63,12 @@ class TurnState:
     enforcement: list[str] = field(default_factory=list)
 
     # instrumentation
+    # "delivered" | "fallback" (answered by the offline scaffold, flagged) |
+    # "failed" (nothing substituted; the student is told the partner is
+    # unavailable).
+    delivery: str = "delivered"
+    # Per LLM call: what was requested and what actually answered (R1).
+    fidelity: dict = field(default_factory=dict)
     node_path: list[str] = field(default_factory=list)
     model_name: str = ""
     provider_used: str = ""

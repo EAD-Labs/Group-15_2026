@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
 
 export type Range = { start: number; end: number };
 
@@ -14,12 +14,9 @@ export type StoryEditorHandle = {
  * The story text area, plus a transparent overlay laid exactly over it.
  *
  * A textarea cannot style parts of its own text, so the overlay repeats the
- * text invisibly with identical typography and wrapping, and paints on top:
- *
- *   - focus mode: every paragraph except the one holding the caret gets a
- *     wash of the page colour, so it fades (iA Writer's focus mode);
- *   - highlights: the passage the writer is asking about, and the passage a
- *     margin note refers to, get a tint (Google Docs' anchored comments).
+ * text invisibly with identical typography and wrapping, and paints on top
+ * the highlights: the passage the writer is asking about, and the passage a
+ * margin note refers to, get a tint (Google Docs' anchored comments).
  *
  * The textarea grows with its content so the page scrolls, not the field -
  * that keeps the overlay's box and the textarea's box identical.
@@ -29,17 +26,15 @@ export const StoryEditor = forwardRef<StoryEditorHandle, {
   onChange: (value: string) => void;
   onSelectionChange: () => void;
   fontSize: number;
-  focusMode: boolean;
   pending: Range | null;   // passage selected for the next question
   anchor: Range | null;    // passage a margin note refers to
 }>(function StoryEditor(
-  { value, onChange, onSelectionChange, fontSize, focusMode, pending, anchor },
+  { value, onChange, onSelectionChange, fontSize, pending, anchor },
   ref,
 ) {
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
-  const [caret, setCaret] = useState(0);
 
   const fit = useCallback(() => {
     const el = areaRef.current;
@@ -66,10 +61,7 @@ export const StoryEditor = forwardRef<StoryEditorHandle, {
     },
   }), []);
 
-  const track = () => {
-    if (areaRef.current) setCaret(areaRef.current.selectionStart);
-    onSelectionChange();
-  };
+  const track = () => onSelectionChange();
 
   const typeStyle = { fontSize, lineHeight: 1.9 };
   const ranges = [
@@ -78,11 +70,6 @@ export const StoryEditor = forwardRef<StoryEditorHandle, {
   ].filter((r): r is Range & { kind: "pending" | "anchor" } => r !== null);
 
   const lines = value.split("\n");
-  const activeLine = value.slice(0, caret).split("\n").length - 1;
-  // Not gated on the field having focus: clicking the toggle itself moves focus
-  // away, and the fade has to show the moment it is switched on. It stays
-  // centred on the paragraph where the caret last was.
-  const dim = focusMode;
 
   let offset = 0;
   return (
@@ -90,7 +77,7 @@ export const StoryEditor = forwardRef<StoryEditorHandle, {
       <textarea
         ref={areaRef}
         value={value}
-        onChange={(e) => { onChange(e.target.value); setCaret(e.target.selectionStart); }}
+        onChange={(e) => onChange(e.target.value)}
         onSelect={track}
         onKeyUp={track}
         onMouseUp={track}
@@ -114,17 +101,7 @@ export const StoryEditor = forwardRef<StoryEditorHandle, {
           const start = offset;
           offset += line.length + 1;
           return (
-            <div
-              key={i}
-              style={{
-                backgroundColor: dim && i !== activeLine
-                  ? "color-mix(in srgb, var(--color-sheet) 68%, transparent)"
-                  : "transparent",
-                transition: "background-color 220ms ease",
-              }}
-            >
-              {renderLine(line, start, ranges, anchorRef)}
-            </div>
+            <div key={i}>{renderLine(line, start, ranges, anchorRef)}</div>
           );
         })}
       </div>
