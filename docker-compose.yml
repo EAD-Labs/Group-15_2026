@@ -38,7 +38,14 @@ services:
       - "host.docker.internal:host-gateway"
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      # next.config.ts reads BACKEND_URL while `next build` computes the
+      # rewrite rules and freezes the result into the compiled output, so it
+      # has to be present at build time, not only passed in via `environment:`
+      # below (which only applies once the container is already running).
+      args:
+        BACKEND_URL: http://backend:8000
     environment:
       BACKEND_URL: http://backend:8000
     depends_on:

@@ -160,6 +160,31 @@ docker compose up --build
 This variant runs against PostgreSQL instead of SQLite, demonstrating the
 Phase 3 storage path. Nothing changes but `DATABASE_URL`.
 
+### Hosting it
+
+Nothing is deployed by default — localhost only, per the brief — but both
+services are already Dockerised, so putting this on the internet is a hosting
+step, not a rebuild. The one thing to design around: the turn endpoint streams
+its reply over SSE, so pick a host that runs your container as a normal,
+long-lived process. Pure serverless/edge platforms can cut that stream short.
+
+**Free path:** [Render](https://render.com) for both services (`render.yaml`
+at the repo root — Render → New → Blueprint → point it at this repo) +
+[Neon](https://neon.tech) for Postgres. Not Render's own free Postgres — it
+auto-deletes after 90 days, which is a silent data-loss trap for a
+semester-long study. Neon's free tier doesn't expire.
+
+What to set:
+- Backend: `DATABASE_URL` (Neon's connection string, with the
+  `postgresql+psycopg://` prefix), `GEMINI_API_KEY`.
+- Frontend: `BACKEND_URL` → the backend service's public Render URL.
+- Backend `ALLOWED_ORIGINS` → the frontend's public URL, as a second layer of
+  defence (the browser normally only ever talks to the frontend; this only
+  matters if something calls the backend directly, e.g. its `/docs` page).
+
+Free-tier web services sleep after 15 minutes idle; the next request wakes
+them with a ~30–50s delay, but won't cut off a reply already streaming.
+
 ---
 
 ## Two portals
