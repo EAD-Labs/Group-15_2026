@@ -1,6 +1,11 @@
 # Story Studio — Human–AI Co-Creative Storytelling
 
-> **[→ Project introduction page](https://raw.githack.com/EAD-Labs/Group-15_2026/main/docs/index.html)** — what Story Studio is and a short walkthrough, for non-technical readers.
+> ### [Start here: open the project introduction page →](https://raw.githack.com/EAD-Labs/Group-15_2026/main/INTRODUCTION.html)
+>
+> What Story Studio is, who it's for, and a short walkthrough of the student and
+> researcher sides, for non-technical readers. The page is the file
+> [`INTRODUCTION.html`](INTRODUCTION.html) at the top of this repository; use the
+> link above to view it as a web page.
 
 **ET 617 · Educational Application Development · Group 15**
 Tushar Bajaj · Vijaylaxmi Maitri · Anshu Mishra
@@ -140,17 +145,18 @@ To compare the partner's replies across models: `backend/eval/suite.py`.
 ## Project layout
 
 ```
-backend/    FastAPI app: the AI pipeline (app/graph), prompts, model providers, database
-frontend/   Next.js app: student workspace and researcher portal
-docs/       introduction page, explainers, plans, evaluation results
-run.sh      one-command local start
+INTRODUCTION.html   introduction page for non-technical readers
+backend/            FastAPI app: the AI pipeline (app/graph), prompts, model providers, database
+frontend/           Next.js app: student workspace and researcher portal
+docs/               explainers, plans, evaluation results
+run.sh              one-command local start
 ```
 
 ## Documentation
 
 | Document | For |
 |---|---|
-| [`docs/index.html`](docs/index.html) | Source of the introduction page |
+| [`INTRODUCTION.html`](https://raw.githack.com/EAD-Labs/Group-15_2026/main/INTRODUCTION.html) | Introduction page for non-technical readers |
 | [`docs/how-it-works.md`](docs/how-it-works.md) | The pipeline, guardrails and AI roles in plain language, with diagrams |
 | [`docs/technical-notes.md`](docs/technical-notes.md) | HLD-to-code map, iteration history, research grounding, design decisions |
 | [`docs/UPDATES.md`](docs/UPDATES.md) | Iteration 4: fixes from the client's heuristic evaluation |

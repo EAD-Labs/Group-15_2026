@@ -564,8 +564,8 @@ frontend/
                  IntentChart · CognitiveChart · CognitiveTimeline
                  PortalGuard · PortalHeader
   lib/           api client (incl. SSE reader) · session · types
+INTRODUCTION.html       project introduction page, for non-technical readers
 docs/
-  index.html            project introduction page (GitHub Pages)
   how-it-works.md       the pipeline in plain language, with diagrams
   technical-notes.md    this file
   iteration-2-plan.md   the client's iteration-2 ask, phased plan, open questions
