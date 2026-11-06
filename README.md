@@ -1,6 +1,6 @@
 # Story Studio — Human–AI Co-Creative Storytelling
 
-> **[→ Project introduction page](https://ead-labs.github.io/Group-15_2026/)** — what Story Studio is and a short walkthrough, for non-technical readers.
+> **[→ Project introduction page](https://raw.githack.com/EAD-Labs/Group-15_2026/main/docs/index.html)** — what Story Studio is and a short walkthrough, for non-technical readers.
 
 **ET 617 · Educational Application Development · Group 15**
 Tushar Bajaj · Vijaylaxmi Maitri · Anshu Mishra
