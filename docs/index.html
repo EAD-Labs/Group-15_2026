@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Story Studio</title>
+<meta name="description" content="A writing space where students write their own stories, with an AI partner that helps them think but never writes for them.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Spectral:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: light;
+    --desk: #e4e8ed;
+    --sheet: #fdfdfb;
+    --paper-edge: #e6e2d8;
+    --ink: #1c1917;
+    --ink-soft: #57534e;
+    --ink-blue: #27477a;
+    --ink-wash: #e8eef7;
+    --graphite: #5b6473;
+    --margin: #f4f5f7;
+    --margin-edge: #dfe3e8;
+    --serif: "Spectral", "Iowan Old Style", Georgia, serif;
+    --sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--margin);
+    color: var(--ink);
+    font: 16px/1.6 var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 20px; }
+  a { color: var(--ink-blue); }
+
+  /* hero */
+  header { padding: 64px 0 40px; text-align: center; }
+  .eyebrow { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--graphite); margin: 0 0 14px; }
+  h1 { font: 600 clamp(40px, 7vw, 60px)/1.05 var(--serif); margin: 0 0 16px; letter-spacing: -.01em; }
+  .lede { font: 400 clamp(19px, 2.6vw, 23px)/1.45 var(--serif); color: var(--ink-soft); max-width: 640px; margin: 0 auto; }
+
+  /* the workspace illustration */
+  .desk { background: var(--desk); border-radius: 14px; padding: 18px; margin: 40px 0 8px; }
+  .workspace { display: grid; grid-template-columns: 1.35fr 1fr; gap: 14px; }
+  .sheet { background: var(--sheet); border: 1px solid var(--paper-edge); border-radius: 6px; padding: 24px 26px; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+  .sheet .title { font: 600 20px/1.3 var(--serif); margin: 0 0 12px; }
+  .sheet p { font: 400 16.5px/1.7 var(--serif); margin: 0 0 12px; color: var(--ink); }
+  .chat { background: var(--margin); border: 1px solid var(--margin-edge); border-radius: 6px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .panel-label { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--graphite); margin: 0 0 2px; }
+  .bubble { border-radius: 12px; padding: 10px 13px; font-size: 14.5px; line-height: 1.5; max-width: 94%; }
+  .me { background: var(--ink-blue); color: #fff; align-self: flex-end; border-bottom-right-radius: 4px; }
+  .partner { background: #fff; border: 1px solid var(--margin-edge); color: var(--ink); align-self: flex-start; border-bottom-left-radius: 4px; }
+  .caption { text-align: center; font-size: 13px; color: var(--graphite); margin: 10px 0 0; }
+
+  /* sections */
+  section { padding: 48px 0; }
+  h2 { font: 600 30px/1.2 var(--serif); margin: 0 0 18px; }
+  .prose { font-size: 17px; max-width: 680px; }
+  .prose p { margin: 0 0 14px; }
+
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card { background: var(--sheet); border: 1px solid var(--paper-edge); border-radius: 10px; padding: 22px 24px; }
+  .card h3 { font: 600 19px/1.3 var(--serif); margin: 0 0 8px; }
+  .card p { margin: 0; color: var(--ink-soft); }
+
+  /* walkthrough */
+  ol.steps { list-style: none; margin: 0; padding: 0; counter-reset: step; }
+  ol.steps > li { counter-increment: step; display: grid; grid-template-columns: 44px 1fr; gap: 6px 16px; padding: 22px 0; border-top: 1px solid var(--margin-edge); }
+  ol.steps > li:first-child { border-top: 0; }
+  ol.steps > li::before {
+    content: counter(step);
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--ink-wash); color: var(--ink-blue);
+    font: 600 17px/36px var(--serif); text-align: center;
+  }
+  .step h3 { font: 600 20px/1.3 var(--serif); margin: 4px 0 6px; }
+  .step p { margin: 0; color: var(--ink-soft); max-width: 640px; }
+  .exchange { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; max-width: 600px; background: var(--margin); border: 1px solid var(--margin-edge); border-radius: 10px; padding: 14px; }
+  .exchange .bubble { max-width: 90%; }
+
+  /* try it */
+  .try { background: var(--sheet); border: 1px solid var(--paper-edge); border-radius: 12px; padding: 30px 32px; text-align: center; }
+  .try p { color: var(--ink-soft); max-width: 560px; margin: 0 auto 20px; }
+  .button { display: inline-block; background: var(--ink-blue); color: #fff; text-decoration: none; font-weight: 500; padding: 12px 22px; border-radius: 8px; }
+  .button:hover { background: #1f3a64; }
+  .button:focus-visible { outline: 3px solid #93a8cf; outline-offset: 2px; }
+
+  footer { padding: 36px 0 56px; color: var(--graphite); font-size: 14px; text-align: center; }
+  footer p { margin: 4px 0; }
+
+  @media (max-width: 720px) {
+    header { padding: 44px 0 24px; }
+    .desk { padding: 10px; margin-top: 28px; }
+    .workspace, .cards { grid-template-columns: 1fr; }
+    .sheet { padding: 18px; }
+    section { padding: 36px 0; }
+    ol.steps > li { grid-template-columns: 36px 1fr; gap: 4px 12px; }
+    ol.steps > li::before { width: 30px; height: 30px; line-height: 30px; font-size: 15px; }
+    .try { padding: 24px 18px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="wrap">
+  <p class="eyebrow">ET 617 · Group 15</p>
+  <h1>Story Studio</h1>
+  <p class="lede">A place for students to write their own stories, with an AI writing partner that helps them think, but never writes the story for them.</p>
+
+  <div class="desk" role="img" aria-label="Illustration of the Story Studio workspace: the student's story on the left, the chat with the writing partner on the right.">
+    <div class="workspace">
+      <div class="sheet">
+        <p class="title">Nobody Argued</p>
+        <p>On Monday the principal announced that every essay at Westbrook High would now be written with an AI. Ms. Okafor, who had taught English there for twenty years, said nothing in the staff meeting. That evening she sat at her kitchen table with a stack of last year's essays, reading them one by one, looking for the moment each student had stopped writing like anyone else.</p>
+        <p>Nobody argued.</p>
+      </div>
+      <div class="chat">
+        <p class="panel-label">Writing partner</p>
+        <div class="bubble me">Write the next paragraph for me.</div>
+        <div class="bubble partner">The wording should come from you. This next section needs to bridge the gap between Ms. Okafor's private observation and the new reality at Westbrook. You could focus on a specific, "imperfect" sentence in an old essay to show what she's afraid of losing, or jump to the sterile silence in her classroom when the students first open their laptops. Which feels more vital to your concept: the specific beauty of the old work or the atmosphere of the new requirement?</div>
+      </div>
+    </div>
+  </div>
+  <p class="caption">The story on the left belongs to the student. The partner on the right helps but does not take over.</p>
+</header>
+
+<main>
+  <section class="wrap" aria-labelledby="problem">
+    <h2 id="problem">The problem</h2>
+    <div class="prose">
+      <p>AI can now write a whole story in seconds. When a student lets it, they skip the part that actually teaches writing: working out what to say and how to say it. What they hand in may not really be theirs.</p>
+      <p>Banning AI doesn't solve this, because students will use it anyway. Story Studio tries something else: an AI partner that is genuinely useful to a writer while leaving the writing to the student.</p>
+    </div>
+  </section>
+
+  <section class="wrap" aria-labelledby="who">
+    <h2 id="who">Who it's for</h2>
+    <div class="cards">
+      <div class="card">
+        <h3>Students</h3>
+        <p>University students writing short stories, such as a teaching scenario, a story that carries a lesson, or a piece of near-future fiction, who want help without handing the work over.</p>
+      </div>
+      <div class="card">
+        <h3>Teachers and researchers</h3>
+        <p>People studying how students write with AI. They can see how a class used the partner, without seeing anyone's name.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap" aria-labelledby="walk">
+    <h2 id="walk">A quick walkthrough</h2>
+    <ol class="steps">
+      <li class="step">
+        <div>
+          <h3>Start a story</h3>
+          <p>Open Story Studio, choose <strong>Student</strong> and type your name. No password needed. Say what the story is about, write its first line, and give it a title if you like.</p>
+        </div>
+      </li>
+      <li class="step">
+        <div>
+          <h3>Write</h3>
+          <p>Your story sits on the left like a sheet of paper. Your writing partner sits on the right, and you can hide it whenever you want to write alone. Earlier versions are kept, so you can always go back.</p>
+        </div>
+      </li>
+      <li class="step">
+        <div>
+          <h3>Ask for ideas</h3>
+          <p>Stuck on what happens next? The partner sets out a few different directions and lets you choose. It doesn't pick one for you.</p>
+          <div class="exchange">
+            <div class="bubble me">Can you help me brainstorm what could happen next?</div>
+            <div class="bubble partner">One direction might follow Ms. Okafor as she attempts to "smuggle" human voice back into the curriculum using those old essays as a guide. Another could focus on a student who feels the loss of their own writing style once the AI takes over. You could also look at how the school's atmosphere shifts as the policy's effects become visible. Which of these consequences interests you most?</div>
+          </div>
+        </div>
+      </li>
+      <li class="step">
+        <div>
+          <h3>Ask it to write for you</h3>
+          <p>It won't. It says briefly that the words should be yours, then helps you work out what the passage needs to do, like the example at the top of this page.</p>
+        </div>
+      </li>
+      <li class="step">
+        <div>
+          <h3>Quick questions get quick answers</h3>
+          <p>Spelling, grammar or what a word means: you get the answer straight away, not a question in its place.</p>
+          <div class="exchange">
+            <div class="bubble me">How do you spell accommodate?</div>
+            <div class="bubble partner">It is spelled "accommodate," with two "c"s and two "m"s. Are you planning to use it to describe how Ms. Okafor tries to adjust to the principal's new mandate, or for something else?</div>
+          </div>
+        </div>
+      </li>
+      <li class="step">
+        <div>
+          <h3>For researchers</h3>
+          <p>Choose <strong>Researcher</strong> instead to set up a study, compare groups of students, and see how each group used the partner. Every student appears only as a code, like <em>Participant_07</em>.</p>
+        </div>
+      </li>
+    </ol>
+    <p class="caption">The replies on this page are real ones from the app's test run with Google Gemini (one has its opening sentence left out).</p>
+  </section>
+
+  <section class="wrap" aria-labelledby="try">
+    <div class="try">
+      <h2 id="try">Try it</h2>
+      <p>Story Studio runs on your own computer. The setup steps take a few minutes and are on GitHub.</p>
+      <a class="button" href="https://github.com/EAD-Labs/Group-15_2026#readme">Setup instructions on GitHub</a>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap">
+  <p>ET 617 Educational Application Development · Group 15: Tushar Bajaj, Vijaylaxmi Maitri, Anshu Mishra</p>
+  <p>Client: Florence Lehnert &amp; Marcus Specht, FernUniversität in Hagen</p>
+</footer>
+
+</body>
+</html>
